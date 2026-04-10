@@ -120,8 +120,6 @@ class SonyConnectionService : Service() {
 
     fun setSpeakToChat(enabled: Boolean) = btManager.setSpeakToChat(enabled)
 
-    fun setWideAreaTap(enabled: Boolean) = btManager.setWideAreaTap(enabled)
-
     fun setButtonModes(left: SonyCommands.ButtonMode, right: SonyCommands.ButtonMode) =
         btManager.setButtonModes(left, right)
 

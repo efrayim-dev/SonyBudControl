@@ -54,7 +54,6 @@ class MainActivity : ComponentActivity() {
                     onFocusOnVoice = viewModel::setFocusOnVoice,
                     onEqPreset = viewModel::setEqPreset,
                     onSpeakToChat = viewModel::setSpeakToChat,
-                    onWideAreaTap = viewModel::setWideAreaTap,
                     onButtonModes = viewModel::setButtonModes,
                     onRefresh = { viewModel.refreshStatus() }
                 )

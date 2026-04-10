@@ -30,8 +30,6 @@ data class DeviceState(
 
     val speakToChat: Boolean = false,
 
-    val wideAreaTap: Boolean = true,
-
     val leftButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.NOISE_CONTROL,
     val rightButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.PLAYBACK_CONTROL
 ) {
@@ -86,7 +84,6 @@ data class DeviceState(
             eqPreset == other.eqPreset &&
             customEqBands.contentEquals(other.customEqBands) &&
             speakToChat == other.speakToChat &&
-            wideAreaTap == other.wideAreaTap &&
             leftButtonMode == other.leftButtonMode &&
             rightButtonMode == other.rightButtonMode &&
             protocolResponses == other.protocolResponses
@@ -95,7 +92,7 @@ data class DeviceState(
     override fun hashCode(): Int = arrayOf(
         connectionStatus, deviceName, lastError, connectAttempt, ancMode,
         ancEnabled, ambientLevel, batteryLeft, batteryRight, batteryCase,
-        eqPreset, speakToChat, wideAreaTap, leftButtonMode, rightButtonMode,
+        eqPreset, speakToChat, leftButtonMode, rightButtonMode,
         protocolResponses
     ).contentHashCode()
 }

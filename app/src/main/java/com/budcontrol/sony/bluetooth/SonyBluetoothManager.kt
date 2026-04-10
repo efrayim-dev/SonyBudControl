@@ -440,8 +440,6 @@ class SonyBluetoothManager(private val context: Context) {
                 _state.value = _state.value.withEq(response.state)
             is SonyParser.ParsedResponse.SpeakToChat ->
                 _state.value = _state.value.copy(speakToChat = response.enabled)
-            is SonyParser.ParsedResponse.WideAreaTap ->
-                _state.value = _state.value.copy(wideAreaTap = response.enabled)
             is SonyParser.ParsedResponse.ButtonModes ->
                 _state.value = _state.value.withButtonModes(response.state)
             is SonyParser.ParsedResponse.Ack -> {}
@@ -509,11 +507,8 @@ class SonyBluetoothManager(private val context: Context) {
         scope.launch { sendBytes(SonyCommands.setSpeakToChat(enabled)) }
     }
 
-    fun setWideAreaTap(enabled: Boolean) {
-        scope.launch { sendBytes(SonyCommands.setWideAreaTap(enabled)) }
-    }
-
     fun setButtonModes(left: SonyCommands.ButtonMode, right: SonyCommands.ButtonMode) {
+        _state.value = _state.value.copy(leftButtonMode = left, rightButtonMode = right)
         scope.launch { sendBytes(SonyCommands.setButtonModes(left, right)) }
     }
 
@@ -528,8 +523,6 @@ class SonyBluetoothManager(private val context: Context) {
             sendBytes(SonyCommands.getEqStatus())
             delay(200)
             sendBytes(SonyCommands.getSpeakToChatStatus())
-            delay(200)
-            sendBytes(SonyCommands.getWideAreaTap())
             delay(200)
             sendBytes(SonyCommands.getButtonModes())
         }

@@ -38,7 +38,6 @@ fun DashboardScreen(
     onFocusOnVoice: (Boolean) -> Unit,
     onEqPreset: (SonyCommands.EqPreset) -> Unit,
     onSpeakToChat: (Boolean) -> Unit,
-    onWideAreaTap: (Boolean) -> Unit,
     onButtonModes: (SonyCommands.ButtonMode, SonyCommands.ButtonMode) -> Unit,
     onRefresh: () -> Unit
 ) {
@@ -117,12 +116,6 @@ fun DashboardScreen(
                 enabled = controlsEnabled,
                 speakToChatOn = state.speakToChat,
                 onToggle = onSpeakToChat
-            )
-
-            WideAreaTapCard(
-                enabled = controlsEnabled,
-                wideAreaTapOn = state.wideAreaTap,
-                onToggle = onWideAreaTap
             )
 
             TouchControlCard(

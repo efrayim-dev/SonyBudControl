@@ -142,7 +142,6 @@ class SonyViewModel(application: Application) : AndroidViewModel(application) {
     fun setEqPreset(preset: SonyCommands.EqPreset) = service?.setEqPreset(preset)
     fun setCustomEq(bands: IntArray) = service?.setCustomEq(bands)
     fun setSpeakToChat(enabled: Boolean) = service?.setSpeakToChat(enabled)
-    fun setWideAreaTap(enabled: Boolean) = service?.setWideAreaTap(enabled)
     fun setButtonModes(left: SonyCommands.ButtonMode, right: SonyCommands.ButtonMode) =
         service?.setButtonModes(left, right)
 

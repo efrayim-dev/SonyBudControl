@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -134,9 +133,9 @@ private fun ButtonModeSelector(
                             Icon(
                                 imageVector = when (mode) {
                                     SonyCommands.ButtonMode.OFF -> Icons.Rounded.Block
-                                    SonyCommands.ButtonMode.AMBIENT_SOUND_CONTROL -> Icons.Rounded.HearingDisabled
+                                    SonyCommands.ButtonMode.NOISE_CONTROL -> Icons.Rounded.HearingDisabled
+                                    SonyCommands.ButtonMode.AMBIENT_SOUND_CONTROL -> Icons.Rounded.Hearing
                                     SonyCommands.ButtonMode.PLAYBACK_CONTROL -> Icons.Rounded.PlayCircle
-                                    SonyCommands.ButtonMode.VOLUME_CONTROL -> Icons.AutoMirrored.Rounded.VolumeUp
                                 },
                                 contentDescription = null,
                                 tint = if (mode == selected) AmberPrimary else TextSecondary,
