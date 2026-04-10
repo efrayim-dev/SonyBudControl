@@ -27,8 +27,9 @@ jobs:
           GRADLE_VER=8.5
           curl -sLO "https://services.gradle.org/distributions/gradle-${GRADLE_VER}-bin.zip"
           unzip -q "gradle-${GRADLE_VER}-bin.zip"
-          # Generate wrapper in a temp project to avoid settings.gradle.kts evaluation
-          mkdir -p /tmp/wrapper-gen && cd /tmp/wrapper-gen
+          mkdir -p /tmp/wrapper-gen/gradle/wrapper
+          touch /tmp/wrapper-gen/settings.gradle
+          cd /tmp/wrapper-gen
           "$GITHUB_WORKSPACE/gradle-${GRADLE_VER}/bin/gradle" wrapper --gradle-version ${GRADLE_VER}
           cp -f gradlew gradlew.bat "$GITHUB_WORKSPACE/"
           cp -f gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties "$GITHUB_WORKSPACE/gradle/wrapper/"
