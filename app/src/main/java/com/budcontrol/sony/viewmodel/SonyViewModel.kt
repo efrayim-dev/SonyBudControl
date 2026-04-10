@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.budcontrol.sony.bluetooth.ConnectionStatus
 import com.budcontrol.sony.bluetooth.DeviceState
 import com.budcontrol.sony.protocol.SonyCommands
 import com.budcontrol.sony.service.SonyConnectionService
@@ -23,6 +22,7 @@ class SonyViewModel(application: Application) : AndroidViewModel(application) {
 
     private var service: SonyConnectionService? = null
     private var bound = false
+    private var pendingAutoConnect = false
 
     private val _deviceState = MutableStateFlow(DeviceState())
     val deviceState: StateFlow<DeviceState> = _deviceState.asStateFlow()
@@ -43,6 +43,11 @@ class SonyViewModel(application: Application) : AndroidViewModel(application) {
                 svc.state.collect { state ->
                     _deviceState.value = state
                 }
+            }
+
+            if (pendingAutoConnect) {
+                pendingAutoConnect = false
+                autoConnectLast()
             }
         }
 
@@ -70,7 +75,7 @@ class SonyViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         if (bound) {
-            getApplication<Application>().unbindService(connection)
+            try { getApplication<Application>().unbindService(connection) } catch (_: Exception) {}
             bound = false
         }
         super.onCleared()
@@ -103,13 +108,19 @@ class SonyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun autoConnectLast() {
+        val svc = service
+        if (svc == null) {
+            pendingAutoConnect = true
+            return
+        }
+
         val ctx = getApplication<Application>()
         val prefs = ctx.getSharedPreferences("sony_bud_prefs", Context.MODE_PRIVATE)
         val lastAddress = prefs.getString("last_device_address", null) ?: return
 
-        val devices = service?.findPairedDevices() ?: return
+        val devices = svc.findPairedDevices()
         val device = devices.find { it.address == lastAddress } ?: return
-        service?.connect(device)
+        svc.connect(device)
     }
 
     // ── Controls ───────────────────────────────────────────────────

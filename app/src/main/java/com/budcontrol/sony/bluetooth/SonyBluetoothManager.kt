@@ -24,7 +24,15 @@ class SonyBluetoothManager(private val context: Context) {
 
     companion object {
         private const val TAG = "SonyBT"
-        val SONY_RFCOMM_UUID: UUID = UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA")
+
+        // Multiple UUIDs to try — order matters (most specific first)
+        private val CONNECT_UUIDS = listOf(
+            UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA"),  // Sony proprietary
+            UUID.fromString("ba2e0d46-0568-3e20-cc96-e3f5169b31d2"),  // Sony alt (some FW)
+            UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"),  // Standard SPP
+        )
+
+        private const val MAX_RETRY_ATTEMPTS = 3
         private const val RECONNECT_DELAY_MS = 5000L
         private const val READ_BUFFER_SIZE = 2048
     }
@@ -37,37 +45,42 @@ class SonyBluetoothManager(private val context: Context) {
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
     private var readJob: Job? = null
+    private var connectJob: Job? = null
     private var autoReconnect = true
     private var targetDevice: BluetoothDevice? = null
 
     private val _state = MutableStateFlow(DeviceState())
     val state: StateFlow<DeviceState> = _state.asStateFlow()
 
-    /**
-     * Find paired Sony headphones/earbuds. Matches common Sony BT names.
-     */
     fun findPairedSonyDevices(): List<BluetoothDevice> {
         val adapter = btAdapter ?: return emptyList()
-        return adapter.bondedDevices
-            .filter { device ->
-                val name = device.name?.lowercase() ?: ""
-                name.contains("sony") ||
-                    name.contains("wf-") ||
-                    name.contains("wh-") ||
-                    name.contains("linkbuds") ||
-                    name.contains("xm")
-            }
-            .sortedByDescending { it.name?.contains("XM", ignoreCase = true) == true }
+        return try {
+            adapter.bondedDevices
+                .filter { device ->
+                    val name = device.name?.lowercase() ?: ""
+                    name.contains("sony") ||
+                        name.contains("wf-") ||
+                        name.contains("wh-") ||
+                        name.contains("linkbuds") ||
+                        name.contains("xm")
+                }
+                .sortedByDescending { it.name?.contains("XM", ignoreCase = true) == true }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No Bluetooth permission", e)
+            emptyList()
+        }
     }
 
     fun connect(device: BluetoothDevice) {
+        connectJob?.cancel()
         targetDevice = device
         autoReconnect = true
-        scope.launch { connectInternal(device) }
+        connectJob = scope.launch { connectWithFallback(device) }
     }
 
     fun disconnect() {
         autoReconnect = false
+        connectJob?.cancel()
         targetDevice = null
         closeSocket()
         _state.value = DeviceState()
@@ -77,43 +90,128 @@ class SonyBluetoothManager(private val context: Context) {
         targetDevice?.let { connect(it) }
     }
 
-    private suspend fun connectInternal(device: BluetoothDevice) {
+    /**
+     * Try connecting with each UUID strategy in order.
+     * For each UUID: try secure, then insecure, then reflection-based.
+     */
+    private suspend fun connectWithFallback(device: BluetoothDevice) {
         _state.value = _state.value.copy(
             connectionStatus = ConnectionStatus.CONNECTING,
             deviceName = device.name,
-            deviceAddress = device.address
+            deviceAddress = device.address,
+            lastError = null,
+            connectAttempt = _state.value.connectAttempt + 1
+        )
+
+        btAdapter?.cancelDiscovery()
+
+        // Strategy 1: Try each UUID with createRfcommSocketToServiceRecord
+        for ((idx, uuid) in CONNECT_UUIDS.withIndex()) {
+            val label = when (idx) {
+                0 -> "Sony proprietary UUID"
+                1 -> "Sony alt UUID"
+                else -> "Standard SPP UUID"
+            }
+            Log.i(TAG, "Trying $label: $uuid")
+            updateError("Trying $label…")
+
+            val sock = tryConnect(device, uuid, secure = true)
+                ?: tryConnect(device, uuid, secure = false)
+
+            if (sock != null) {
+                onSocketConnected(sock, device)
+                return
+            }
+        }
+
+        // Strategy 2: Reflection-based RFCOMM channel (bypasses SDP lookup)
+        Log.i(TAG, "Trying reflection-based RFCOMM channel 1")
+        updateError("Trying direct RFCOMM channel…")
+        val reflectionSock = tryReflectionConnect(device)
+        if (reflectionSock != null) {
+            onSocketConnected(reflectionSock, device)
+            return
+        }
+
+        // All strategies failed
+        val errorMsg = "Could not open RFCOMM to ${device.name}. " +
+            "Make sure the earbuds are on and paired."
+        Log.e(TAG, errorMsg)
+        _state.value = _state.value.copy(
+            connectionStatus = ConnectionStatus.DISCONNECTED,
+            lastError = errorMsg
+        )
+
+        if (autoReconnect && _state.value.connectAttempt < MAX_RETRY_ATTEMPTS) {
+            delay(RECONNECT_DELAY_MS)
+            if (autoReconnect) {
+                _state.value = _state.value.copy(connectionStatus = ConnectionStatus.RECONNECTING)
+                connectWithFallback(device)
+            }
+        }
+    }
+
+    private fun tryConnect(
+        device: BluetoothDevice,
+        uuid: UUID,
+        secure: Boolean
+    ): BluetoothSocket? {
+        return try {
+            closeSocket()
+            val sock = if (secure) {
+                device.createRfcommSocketToServiceRecord(uuid)
+            } else {
+                device.createInsecureRfcommSocketToServiceRecord(uuid)
+            }
+            sock.connect()
+            Log.i(TAG, "Connected via ${if (secure) "secure" else "insecure"} RFCOMM, UUID=$uuid")
+            sock
+        } catch (e: IOException) {
+            Log.w(TAG, "Failed ${if (secure) "secure" else "insecure"} RFCOMM UUID=$uuid: ${e.message}")
+            null
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Permission denied for RFCOMM: ${e.message}")
+            null
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun tryReflectionConnect(device: BluetoothDevice): BluetoothSocket? {
+        return try {
+            closeSocket()
+            val method = device.javaClass.getMethod("createRfcommSocket", Int::class.java)
+            val sock = method.invoke(device, 1) as BluetoothSocket
+            sock.connect()
+            Log.i(TAG, "Connected via reflection RFCOMM channel 1")
+            sock
+        } catch (e: Exception) {
+            Log.w(TAG, "Reflection RFCOMM failed: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun onSocketConnected(sock: BluetoothSocket, device: BluetoothDevice) {
+        socket = sock
+        inputStream = sock.inputStream
+        outputStream = sock.outputStream
+        SonyMessage.resetSeq()
+
+        Log.i(TAG, "Successfully connected to ${device.name}")
+        _state.value = _state.value.copy(
+            connectionStatus = ConnectionStatus.CONNECTED,
+            lastError = null,
+            connectAttempt = 0
         )
 
         try {
-            closeSocket()
-            SonyMessage.resetSeq()
-
-            socket = device.createRfcommSocketToServiceRecord(SONY_RFCOMM_UUID)
-            btAdapter?.cancelDiscovery()
-            socket!!.connect()
-
-            inputStream = socket!!.inputStream
-            outputStream = socket!!.outputStream
-
-            Log.i(TAG, "Connected to ${device.name}")
-            _state.value = _state.value.copy(connectionStatus = ConnectionStatus.CONNECTED)
-
             sendBytes(SonyCommands.initHandshake())
-            delay(300)
-
+            delay(500)
             requestAllStatus()
-            startReadLoop()
         } catch (e: IOException) {
-            Log.e(TAG, "Connection failed: ${e.message}")
-            closeSocket()
-            _state.value = _state.value.copy(connectionStatus = ConnectionStatus.DISCONNECTED)
-
-            if (autoReconnect) {
-                delay(RECONNECT_DELAY_MS)
-                _state.value = _state.value.copy(connectionStatus = ConnectionStatus.RECONNECTING)
-                connectInternal(device)
-            }
+            Log.w(TAG, "Post-connect handshake failed: ${e.message}")
         }
+
+        startReadLoop()
     }
 
     private fun startReadLoop() {
@@ -133,7 +231,6 @@ class SonyBluetoothManager(private val context: Context) {
                     val frames = SonyMessage.extractFrames(accumulated)
 
                     if (frames.isNotEmpty()) {
-                        // Find last END_MARKER position to trim processed bytes
                         val lastEnd = accumulated.lastIndexOf(SonyMessage.END_MARKER)
                         accum.clear()
                         if (lastEnd >= 0 && lastEnd + 1 < accumulated.size) {
@@ -156,7 +253,6 @@ class SonyBluetoothManager(private val context: Context) {
     private suspend fun handleFrame(frameBytes: ByteArray) {
         val frame = SonyMessage.parseFrame(frameBytes) ?: return
 
-        // Send ACK for non-ACK messages
         if (frame.dataType != SonyMessage.DATA_TYPE_ACK) {
             sendBytes(SonyMessage.buildAck(frame.seqNum))
         }
@@ -176,26 +272,37 @@ class SonyBluetoothManager(private val context: Context) {
             is SonyParser.ParsedResponse.SpeakToChat -> {
                 _state.value = _state.value.copy(speakToChat = response.enabled)
             }
-            is SonyParser.ParsedResponse.Ack -> { /* expected */ }
+            is SonyParser.ParsedResponse.Ack -> {}
             is SonyParser.ParsedResponse.Unknown -> {
-                Log.d(TAG, "Unknown response feature: 0x${"%02X".format(response.feature)}")
+                Log.d(TAG, "Unknown response: 0x${"%02X".format(response.feature)}, " +
+                    "${response.data.size} bytes")
             }
         }
     }
 
     private fun onDisconnected() {
         closeSocket()
-        _state.value = _state.value.copy(connectionStatus = ConnectionStatus.DISCONNECTED)
+        _state.value = _state.value.copy(
+            connectionStatus = ConnectionStatus.DISCONNECTED,
+            lastError = "Connection lost"
+        )
 
         if (autoReconnect) {
             scope.launch {
                 delay(RECONNECT_DELAY_MS)
                 targetDevice?.let {
-                    _state.value = _state.value.copy(connectionStatus = ConnectionStatus.RECONNECTING)
-                    connectInternal(it)
+                    _state.value = _state.value.copy(
+                        connectionStatus = ConnectionStatus.RECONNECTING,
+                        connectAttempt = 0
+                    )
+                    connectWithFallback(it)
                 }
             }
         }
+    }
+
+    private fun updateError(msg: String) {
+        _state.value = _state.value.copy(lastError = msg)
     }
 
     // ── Public command methods ──────────────────────────────────────
@@ -221,21 +328,15 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     fun setAmbientLevel(level: Int) {
-        scope.launch {
-            sendBytes(SonyCommands.setAmbientSound(level, _state.value.focusOnVoice))
-        }
+        scope.launch { sendBytes(SonyCommands.setAmbientSound(level, _state.value.focusOnVoice)) }
     }
 
     fun setFocusOnVoice(enabled: Boolean) {
-        scope.launch {
-            sendBytes(SonyCommands.setAmbientSound(_state.value.ambientLevel, enabled))
-        }
+        scope.launch { sendBytes(SonyCommands.setAmbientSound(_state.value.ambientLevel, enabled)) }
     }
 
     fun setWindReduction(enabled: Boolean) {
-        scope.launch {
-            sendBytes(SonyCommands.setNoiseCanceling(enabled))
-        }
+        scope.launch { sendBytes(SonyCommands.setNoiseCanceling(enabled)) }
     }
 
     fun setEqPreset(preset: SonyCommands.EqPreset) {
@@ -253,11 +354,11 @@ class SonyBluetoothManager(private val context: Context) {
     fun requestAllStatus() {
         scope.launch {
             sendBytes(SonyCommands.getNcAsmStatus())
-            delay(100)
+            delay(150)
             sendBytes(SonyCommands.getBatteryStatus())
-            delay(100)
+            delay(150)
             sendBytes(SonyCommands.getEqStatus())
-            delay(100)
+            delay(150)
             sendBytes(SonyCommands.getSpeakToChatStatus())
         }
     }
@@ -287,6 +388,7 @@ class SonyBluetoothManager(private val context: Context) {
 
     fun destroy() {
         autoReconnect = false
+        connectJob?.cancel()
         closeSocket()
         scope.cancel()
     }

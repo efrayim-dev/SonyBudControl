@@ -7,6 +7,8 @@ data class DeviceState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val deviceName: String? = null,
     val deviceAddress: String? = null,
+    val lastError: String? = null,
+    val connectAttempt: Int = 0,
 
     val ancMode: SonyCommands.AncMode = SonyCommands.AncMode.OFF,
     val ancEnabled: Boolean = false,
@@ -61,6 +63,8 @@ data class DeviceState(
         if (other !is DeviceState) return false
         return connectionStatus == other.connectionStatus &&
             deviceName == other.deviceName &&
+            lastError == other.lastError &&
+            connectAttempt == other.connectAttempt &&
             ancMode == other.ancMode &&
             ancEnabled == other.ancEnabled &&
             ambientLevel == other.ambientLevel &&
@@ -75,8 +79,9 @@ data class DeviceState(
     }
 
     override fun hashCode(): Int = arrayOf(
-        connectionStatus, deviceName, ancMode, ancEnabled, ambientLevel,
-        batteryLeft, batteryRight, batteryCase, eqPreset, speakToChat
+        connectionStatus, deviceName, lastError, connectAttempt, ancMode,
+        ancEnabled, ambientLevel, batteryLeft, batteryRight, batteryCase,
+        eqPreset, speakToChat
     ).contentHashCode()
 }
 

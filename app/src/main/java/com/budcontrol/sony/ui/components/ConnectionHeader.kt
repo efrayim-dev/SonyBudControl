@@ -3,7 +3,6 @@ package com.budcontrol.sony.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.budcontrol.sony.bluetooth.ConnectionStatus
 import com.budcontrol.sony.bluetooth.DeviceState
@@ -29,11 +29,14 @@ fun ConnectionHeader(
     onDisconnectClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isActive = state.connectionStatus == ConnectionStatus.CONNECTING ||
+        state.connectionStatus == ConnectionStatus.RECONNECTING
+
     val statusColor by animateColorAsState(
         when (state.connectionStatus) {
             ConnectionStatus.CONNECTED -> AncGreen
             ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> AmberPrimary
-            ConnectionStatus.DISCONNECTED -> AncOffGray
+            ConnectionStatus.DISCONNECTED -> if (state.lastError != null) BatteryRed else AncOffGray
         },
         label = "statusColor"
     )
@@ -59,17 +62,11 @@ fun ConnectionHeader(
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Status indicator dot
             Box(
                 modifier = Modifier
                     .size(12.dp)
                     .clip(CircleShape)
-                    .background(
-                        statusColor.copy(
-                            alpha = if (state.connectionStatus == ConnectionStatus.CONNECTING ||
-                                state.connectionStatus == ConnectionStatus.RECONNECTING) pulseAlpha else 1f
-                        )
-                    )
+                    .background(statusColor.copy(alpha = if (isActive) pulseAlpha else 1f))
             )
 
             Spacer(Modifier.width(16.dp))
@@ -81,15 +78,26 @@ fun ConnectionHeader(
                     color = TextPrimary
                 )
                 Spacer(Modifier.height(2.dp))
+
+                val statusText = when (state.connectionStatus) {
+                    ConnectionStatus.CONNECTED -> "Connected"
+                    ConnectionStatus.CONNECTING -> state.lastError ?: "Connecting…"
+                    ConnectionStatus.RECONNECTING -> {
+                        val attempt = if (state.connectAttempt > 0) " (attempt ${state.connectAttempt})" else ""
+                        (state.lastError ?: "Reconnecting…") + attempt
+                    }
+                    ConnectionStatus.DISCONNECTED -> {
+                        state.lastError ?: "Tap to connect"
+                    }
+                }
+
                 Text(
-                    text = when (state.connectionStatus) {
-                        ConnectionStatus.CONNECTED -> "Connected"
-                        ConnectionStatus.CONNECTING -> "Connecting…"
-                        ConnectionStatus.RECONNECTING -> "Reconnecting…"
-                        ConnectionStatus.DISCONNECTED -> "Tap to connect"
-                    },
+                    text = statusText,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = if (state.connectionStatus == ConnectionStatus.DISCONNECTED && state.lastError != null)
+                        BatteryRed.copy(alpha = 0.8f) else TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
