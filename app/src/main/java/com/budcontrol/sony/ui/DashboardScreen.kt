@@ -9,12 +9,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Accessibility
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.budcontrol.sony.bluetooth.DeviceState
 import com.budcontrol.sony.protocol.SonyCommands
@@ -27,6 +30,8 @@ fun DashboardScreen(
     state: DeviceState,
     pairedDevices: List<BluetoothDevice>,
     showDevicePicker: Boolean,
+    sonyAppInstalled: Boolean,
+    accessibilityRunning: Boolean,
     onShowDevicePicker: () -> Unit,
     onDismissDevicePicker: () -> Unit,
     onConnectDevice: (BluetoothDevice) -> Unit,
@@ -37,10 +42,11 @@ fun DashboardScreen(
     onWindReduction: (Boolean) -> Unit,
     onEqPreset: (SonyCommands.EqPreset) -> Unit,
     onSpeakToChat: (Boolean) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onOpenAccessibilitySettings: () -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val controlsEnabled = state.isConnected
+    val controlsEnabled = state.isConnected || accessibilityRunning
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -55,14 +61,12 @@ fun DashboardScreen(
                     )
                 },
                 actions = {
-                    if (state.isConnected) {
-                        IconButton(onClick = onRefresh) {
-                            Icon(
-                                Icons.Rounded.Refresh,
-                                contentDescription = "Refresh",
-                                tint = TextSecondary
-                            )
-                        }
+                    IconButton(onClick = onRefresh) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Refresh",
+                            tint = TextSecondary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -81,9 +85,19 @@ fun DashboardScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Setup card if accessibility isn't enabled
+            if (!accessibilityRunning) {
+                SetupCard(
+                    sonyAppInstalled = sonyAppInstalled,
+                    onOpenAccessibilitySettings = onOpenAccessibilitySettings
+                )
+            }
+
             ConnectionHeader(
                 state = state,
-                onConnectClick = onShowDevicePicker,
+                onConnectClick = {
+                    if (accessibilityRunning) onRefresh() else onShowDevicePicker()
+                },
                 onDisconnectClick = onDisconnect
             )
 
@@ -122,13 +136,90 @@ fun DashboardScreen(
         }
     }
 
-    // Device picker bottom sheet
     if (showDevicePicker) {
         DevicePickerSheet(
             devices = pairedDevices,
             onDeviceSelected = onConnectDevice,
             onDismiss = onDismissDevicePicker
         )
+    }
+}
+
+@Composable
+private fun SetupCard(
+    sonyAppInstalled: Boolean,
+    onOpenAccessibilitySettings: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SonyCardSurface),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Accessibility,
+                    contentDescription = null,
+                    tint = AmberPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Setup Required",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Text(
+                "BudControl works by automating the Sony app. " +
+                    "Enable the accessibility service to let BudControl " +
+                    "tap buttons in the Sony app for you.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+
+            if (!sonyAppInstalled) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Warning,
+                        contentDescription = null,
+                        tint = BatteryRed,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Sony Sound Connect / Headphones Connect app not found. Install it first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BatteryRed
+                    )
+                }
+            }
+
+            Button(
+                onClick = onOpenAccessibilitySettings,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AmberPrimary)
+            ) {
+                Text(
+                    "Open Accessibility Settings",
+                    color = SonyBlack,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Text(
+                "Find \"BudControl\" in the list and enable it. " +
+                    "Only the Sony app is monitored.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextTertiary
+            )
+        }
     }
 }
 

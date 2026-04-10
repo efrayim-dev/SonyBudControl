@@ -38,11 +38,15 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.deviceState.collectAsState()
                 val pairedDevices by viewModel.pairedDevices.collectAsState()
                 val showPicker by viewModel.showDevicePicker.collectAsState()
+                val sonyInstalled by viewModel.sonyAppInstalled.collectAsState()
+                val a11yService by viewModel.accessibilityEnabled.collectAsState()
 
                 DashboardScreen(
                     state = state,
                     pairedDevices = pairedDevices,
                     showDevicePicker = showPicker,
+                    sonyAppInstalled = sonyInstalled,
+                    accessibilityRunning = a11yService != null,
                     onShowDevicePicker = viewModel::showDevicePicker,
                     onDismissDevicePicker = viewModel::dismissDevicePicker,
                     onConnectDevice = viewModel::connectToDevice,
@@ -53,10 +57,16 @@ class MainActivity : ComponentActivity() {
                     onWindReduction = viewModel::setWindReduction,
                     onEqPreset = viewModel::setEqPreset,
                     onSpeakToChat = viewModel::setSpeakToChat,
-                    onRefresh = { viewModel.refreshStatus() }
+                    onRefresh = { viewModel.refreshStatus() },
+                    onOpenAccessibilitySettings = viewModel::openAccessibilitySettings
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshSetupState()
     }
 
     private fun requestPermissionsIfNeeded() {
@@ -72,7 +82,6 @@ class MainActivity : ComponentActivity() {
                 needed.add(Manifest.permission.BLUETOOTH_SCAN)
             }
         } else {
-            // Pre-Android 12: BLE scanning requires location permission
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
                 needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
