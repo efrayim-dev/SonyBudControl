@@ -91,12 +91,14 @@ fun ConnectionHeader(
                     }
                 }
 
+                val isError = state.connectionStatus == ConnectionStatus.DISCONNECTED && state.lastError != null
+                val isLong = statusText.length > 80
+
                 Text(
                     text = statusText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (state.connectionStatus == ConnectionStatus.DISCONNECTED && state.lastError != null)
-                        BatteryRed.copy(alpha = 0.8f) else TextSecondary,
-                    maxLines = 2,
+                    style = if (isLong) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+                    color = if (isError) BatteryRed.copy(alpha = 0.8f) else TextSecondary,
+                    maxLines = if (isLong) 6 else 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }

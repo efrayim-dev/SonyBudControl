@@ -2,8 +2,12 @@ package com.budcontrol.sony.bluetooth
 
 import android.annotation.SuppressLint
 import android.bluetooth.*
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
+import android.os.ParcelUuid
 import android.util.Log
 import com.budcontrol.sony.protocol.SonyCommands
 import com.budcontrol.sony.protocol.SonyMessage
@@ -23,36 +27,30 @@ class SonyBluetoothManager(private val context: Context) {
     companion object {
         private const val TAG = "SonyBT"
 
-        // ── BLE GATT UUIDs (Sony uses these for the control channel) ────
-        private val BLE_SERVICE_UUIDS = listOf(
+        // Known Sony control-channel UUIDs (for both GATT service and RFCOMM SDP)
+        private val SONY_UUIDS = listOf(
             UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA"),
-            UUID.fromString("0000fe89-0000-1000-8000-00805f9b34fb"),
-            UUID.fromString("23bb7500-7084-11e4-82f8-0800200c9a66"),
+            UUID.fromString("ba2e0d46-0568-3e20-cc96-e3f5169b31d2"),
         )
+        private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-        // Common Sony GATT characteristic patterns — write + notify
-        private val BLE_CHAR_WRITE_UUIDS = listOf(
-            UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA"),
-            UUID.fromString("0000fe8a-0000-1000-8000-00805f9b34fb"),
-            UUID.fromString("23bb7503-7084-11e4-82f8-0800200c9a66"),
-        )
-        private val BLE_CHAR_NOTIFY_UUIDS = listOf(
-            UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA"),
-            UUID.fromString("0000fe8b-0000-1000-8000-00805f9b34fb"),
-            UUID.fromString("23bb7504-7084-11e4-82f8-0800200c9a66"),
-        )
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-        // ── Classic RFCOMM UUIDs ────────────────────────────────────────
-        private val RFCOMM_UUIDS = listOf(
-            UUID.fromString("96CC203E-5068-46AD-B32D-E316F5E069BA"),
-            UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"),
+        // Standard BT service UUIDs we should NOT try RFCOMM on (they're audio, not data)
+        private val SKIP_UUIDS = setOf(
+            "0000110b", "0000110a", "0000110c", "0000110d", "0000110e", // A2DP
+            "0000111e", "0000111f",                                     // HFP
+            "00001108", "00001105",                                     // HSP, OPP
+            "00001200",                                                 // PnP
+            "00001800", "00001801",                                     // GAP, GATT
         )
 
         private const val MAX_RETRY_ATTEMPTS = 2
-        private const val RECONNECT_DELAY_MS = 5000L
+        private const val RECONNECT_DELAY_MS = 6000L
         private const val READ_BUFFER_SIZE = 2048
         private const val BLE_MTU = 512
+        private const val SDP_TIMEOUT_MS = 5000L
+        private const val BLE_CONNECT_TIMEOUT_MS = 10_000L
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -122,7 +120,13 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     /**
-     * Primary connect flow: try BLE GATT first (newer models), then RFCOMM (older).
+     * Full connect sequence:
+     *  0. SDP discovery — ask the device what services it exposes
+     *  1. BLE GATT over LE transport
+     *  2. BLE GATT over BR/EDR transport (some Sony devices serve GATT here)
+     *  3. BLE GATT over AUTO transport
+     *  4. RFCOMM on every discovered SDP UUID (+ known Sony UUIDs)
+     *  5. RFCOMM reflection fallback
      */
     private suspend fun connectAll(device: BluetoothDevice) {
         _state.value = _state.value.copy(
@@ -135,21 +139,40 @@ class SonyBluetoothManager(private val context: Context) {
 
         btAdapter?.cancelDiscovery()
 
-        // ── Phase 1: BLE GATT ──────────────────────────────────────
-        updateError("Connecting via Bluetooth LE…")
-        Log.i(TAG, "Phase 1: Attempting BLE GATT to ${device.name}")
+        // ── Phase 0: Discover UUIDs via SDP ────────────────────────
+        updateError("Discovering services…")
+        val discoveredUuids = discoverUuids(device)
+        val diagUuids = discoveredUuids.map { it.toString().take(8) }
+        Log.i(TAG, "SDP discovered ${discoveredUuids.size} UUIDs: $diagUuids")
 
-        val bleResult = tryBleConnect(device)
-        if (bleResult) {
-            Log.i(TAG, "BLE GATT connected successfully")
-            return
+        // ── Phase 1–3: BLE GATT (try LE, BR/EDR, AUTO) ────────────
+        val transports = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            listOf(
+                BluetoothDevice.TRANSPORT_LE to "LE",
+                BluetoothDevice.TRANSPORT_BREDR to "BR/EDR",
+                BluetoothDevice.TRANSPORT_AUTO to "AUTO"
+            )
+        } else {
+            listOf(0 to "default")
         }
 
-        // ── Phase 2: Classic RFCOMM ────────────────────────────────
-        updateError("BLE failed, trying classic Bluetooth…")
-        Log.i(TAG, "Phase 2: Attempting RFCOMM to ${device.name}")
+        for ((transport, label) in transports) {
+            updateError("BLE GATT ($label)…")
+            Log.i(TAG, "Trying BLE GATT transport=$label")
+            val ok = tryBleConnect(device, transport)
+            if (ok) {
+                Log.i(TAG, "Connected via BLE GATT ($label)")
+                return
+            }
+        }
 
-        for (uuid in RFCOMM_UUIDS) {
+        // ── Phase 4: RFCOMM on discovered + known UUIDs ────────────
+        val rfcommCandidates = buildRfcommUuidList(discoveredUuids)
+        Log.i(TAG, "RFCOMM candidates: ${rfcommCandidates.size} UUIDs")
+
+        for (uuid in rfcommCandidates) {
+            val shortId = uuid.toString().take(8)
+            updateError("RFCOMM $shortId…")
             val sock = tryRfcommConnect(device, uuid, secure = true)
                 ?: tryRfcommConnect(device, uuid, secure = false)
             if (sock != null) {
@@ -158,21 +181,31 @@ class SonyBluetoothManager(private val context: Context) {
             }
         }
 
-        // Reflection fallback
-        val reflSock = tryReflectionConnect(device)
-        if (reflSock != null) {
-            onRfcommConnected(reflSock, device)
-            return
+        // ── Phase 5: Reflection fallback ───────────────────────────
+        updateError("RFCOMM direct channel…")
+        for (channel in listOf(1, 2, 3, 5, 10)) {
+            val sock = tryReflectionConnect(device, channel)
+            if (sock != null) {
+                onRfcommConnected(sock, device)
+                return
+            }
         }
 
         // ── All failed ─────────────────────────────────────────────
-        val errorMsg = "Could not connect to ${device.name}.\n" +
-            "Tried BLE GATT + classic RFCOMM.\n" +
-            "Make sure earbuds are on, paired, and no other app holds the connection."
-        Log.e(TAG, errorMsg)
+        val diagInfo = buildString {
+            append("Could not connect to ${device.name}.\n")
+            append("SDP found ${discoveredUuids.size} service(s)")
+            if (discoveredUuids.isNotEmpty()) {
+                append(": ${diagUuids.joinToString()}")
+            }
+            append(".\n")
+            append("Tried 3 BLE transports + ${rfcommCandidates.size} RFCOMM UUIDs + 5 channels.\n")
+            append("Try: close Sony app → forget + re-pair earbuds → retry.")
+        }
+        Log.e(TAG, diagInfo)
         _state.value = _state.value.copy(
             connectionStatus = ConnectionStatus.DISCONNECTED,
-            lastError = errorMsg
+            lastError = diagInfo
         )
 
         if (autoReconnect && _state.value.connectAttempt < MAX_RETRY_ATTEMPTS) {
@@ -185,19 +218,98 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  SDP UUID discovery
+    // ══════════════════════════════════════════════════════════════
+
+    private suspend fun discoverUuids(device: BluetoothDevice): List<UUID> {
+        // First check cached UUIDs from pairing
+        val cached = device.uuids?.map { it.uuid } ?: emptyList()
+        if (cached.isNotEmpty()) {
+            Log.i(TAG, "Using ${cached.size} cached SDP UUIDs")
+            return cached
+        }
+
+        // Force a fresh SDP lookup
+        val result = CompletableDeferred<List<UUID>>()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.action == BluetoothDevice.ACTION_UUID) {
+                    val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    }
+                    if (d?.address == device.address) {
+                        val uuids = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID, ParcelUuid::class.java)
+                                ?.map { it.uuid }
+                        } else {
+                            @Suppress("DEPRECATION")
+                            (intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID) as? Array<*>)
+                                ?.filterIsInstance<ParcelUuid>()
+                                ?.map { it.uuid }
+                        }
+                        result.complete(uuids ?: emptyList())
+                    }
+                }
+            }
+        }
+
+        context.registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_UUID))
+
+        return try {
+            device.fetchUuidsWithSdp()
+            withTimeout(SDP_TIMEOUT_MS) { result.await() }
+        } catch (e: Exception) {
+            Log.w(TAG, "SDP discovery failed/timed out: ${e.message}")
+            emptyList()
+        } finally {
+            try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
+        }
+    }
+
+    private fun buildRfcommUuidList(discovered: List<UUID>): List<UUID> {
+        val candidates = mutableListOf<UUID>()
+
+        // Priority 1: known Sony control UUIDs if they show up in SDP
+        for (uuid in SONY_UUIDS) {
+            if (uuid in discovered) candidates.add(uuid)
+        }
+
+        // Priority 2: any discovered UUID that isn't a standard audio/system profile
+        for (uuid in discovered) {
+            if (uuid in candidates) continue
+            val short = uuid.toString().take(8).lowercase()
+            if (short in SKIP_UUIDS) continue
+            candidates.add(uuid)
+        }
+
+        // Priority 3: known Sony UUIDs even if not in SDP (some devices hide them)
+        for (uuid in SONY_UUIDS) {
+            if (uuid !in candidates) candidates.add(uuid)
+        }
+
+        // Priority 4: standard SPP as last resort
+        if (SPP_UUID !in candidates) candidates.add(SPP_UUID)
+
+        return candidates
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  BLE GATT
     // ══════════════════════════════════════════════════════════════
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            Log.i(TAG, "BLE onConnectionStateChange: status=$status newState=$newState")
+            Log.i(TAG, "BLE state: status=$status newState=$newState")
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    Log.i(TAG, "BLE connected, requesting MTU $BLE_MTU")
+                    Log.i(TAG, "BLE link up, requesting MTU")
                     gatt.requestMtu(BLE_MTU)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.w(TAG, "BLE disconnected (status=$status)")
+                    Log.w(TAG, "BLE link down (status=$status)")
                     if (bleConnected) {
                         bleConnected = false
                         onDisconnected()
@@ -207,67 +319,75 @@ class SonyBluetoothManager(private val context: Context) {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            Log.i(TAG, "BLE MTU changed to $mtu (status=$status)")
+            Log.i(TAG, "BLE MTU=$mtu (status=$status)")
             gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(TAG, "BLE service discovery failed: status=$status")
+                Log.e(TAG, "BLE service discovery failed: $status")
                 return
             }
-            Log.i(TAG, "BLE services discovered: ${gatt.services.size} services")
-            for (svc in gatt.services) {
-                Log.d(TAG, "  Service: ${svc.uuid} (${svc.characteristics.size} chars)")
-                for (ch in svc.characteristics) {
-                    Log.d(TAG, "    Char: ${ch.uuid} props=${ch.properties}")
-                }
-            }
+            logGattServices(gatt)
             findSonyCharacteristics(gatt)
         }
 
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic
+            gatt: BluetoothGatt, ch: BluetoothGattCharacteristic
         ) {
             @Suppress("DEPRECATION")
-            val data = characteristic.value ?: return
-            handleBleData(data)
+            handleBleData(ch.value ?: return)
         }
 
         override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
+            gatt: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray
         ) {
             handleBleData(value)
         }
 
         override fun onCharacteristicWrite(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            status: Int
+            gatt: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int
         ) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "BLE write failed: status=$status")
+            if (status != BluetoothGatt.GATT_SUCCESS)
+                Log.w(TAG, "BLE write status=$status")
+        }
+    }
+
+    private fun logGattServices(g: BluetoothGatt) {
+        Log.i(TAG, "GATT: ${g.services.size} services discovered")
+        for (svc in g.services) {
+            Log.i(TAG, "  svc ${svc.uuid} (${svc.characteristics.size} chars)")
+            for (ch in svc.characteristics) {
+                val p = ch.properties
+                val flags = buildString {
+                    if (p and BluetoothGattCharacteristic.PROPERTY_READ != 0) append("R")
+                    if (p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) append("W")
+                    if (p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) append("w")
+                    if (p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) append("N")
+                    if (p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) append("I")
+                }
+                Log.i(TAG, "    ch ${ch.uuid} [$flags]")
             }
         }
     }
 
-    private suspend fun tryBleConnect(device: BluetoothDevice): Boolean {
+    private suspend fun tryBleConnect(device: BluetoothDevice, transport: Int): Boolean {
         closeGatt()
         bleConnected = false
         bleAccum.clear()
+        writeCharacteristic = null
+        notifyCharacteristic = null
 
         val result = CompletableDeferred<Boolean>()
 
         val wrappedCallback = object : BluetoothGattCallback() {
-            private var servicesFound = false
+            private var resolved = false
 
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                 gattCallback.onConnectionStateChange(g, status, newState)
-                if (newState == BluetoothProfile.STATE_DISCONNECTED && !servicesFound) {
+                if (newState == BluetoothProfile.STATE_DISCONNECTED && !resolved) {
+                    resolved = true
                     result.complete(false)
                 }
             }
@@ -278,8 +398,10 @@ class SonyBluetoothManager(private val context: Context) {
 
             override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
                 gattCallback.onServicesDiscovered(g, status)
-                servicesFound = writeCharacteristic != null
-                result.complete(servicesFound)
+                if (!resolved) {
+                    resolved = true
+                    result.complete(writeCharacteristic != null)
+                }
             }
 
             @Deprecated("Deprecated in API 33")
@@ -302,17 +424,17 @@ class SonyBluetoothManager(private val context: Context) {
         }
 
         withContext(Dispatchers.Main) {
-            gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                device.connectGatt(context, false, wrappedCallback, BluetoothDevice.TRANSPORT_LE)
+            gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && transport != 0) {
+                device.connectGatt(context, false, wrappedCallback, transport)
             } else {
                 device.connectGatt(context, false, wrappedCallback)
             }
         }
 
         val connected = try {
-            withTimeout(12_000) { result.await() }
+            withTimeout(BLE_CONNECT_TIMEOUT_MS) { result.await() }
         } catch (e: TimeoutCancellationException) {
-            Log.w(TAG, "BLE connect timed out")
+            Log.w(TAG, "BLE timed out (transport=$transport)")
             false
         }
 
@@ -343,65 +465,49 @@ class SonyBluetoothManager(private val context: Context) {
         notifyCharacteristic = null
 
         // Strategy 1: match known Sony service UUIDs
-        for (svcUuid in BLE_SERVICE_UUIDS) {
+        for (svcUuid in SONY_UUIDS) {
             val svc = g.getService(svcUuid) ?: continue
-            Log.i(TAG, "Found known Sony service: $svcUuid")
-
-            for (wUuid in BLE_CHAR_WRITE_UUIDS) {
-                writeCharacteristic = svc.getCharacteristic(wUuid)
-                if (writeCharacteristic != null) break
-            }
-            for (nUuid in BLE_CHAR_NOTIFY_UUIDS) {
-                notifyCharacteristic = svc.getCharacteristic(nUuid)
-                if (notifyCharacteristic != null) break
-            }
-
-            // If exact UUID match failed, find chars by properties
-            if (writeCharacteristic == null || notifyCharacteristic == null) {
-                findCharsByProperties(svc)
-            }
+            Log.i(TAG, "Matched known Sony service: $svcUuid")
+            findCharsByProperties(svc)
             if (writeCharacteristic != null) break
         }
 
-        // Strategy 2: scan ALL services for writable + notifiable chars
+        // Strategy 2: scan ALL non-generic services for writable + notifiable chars
         if (writeCharacteristic == null) {
-            Log.i(TAG, "No known Sony service found, scanning all services…")
+            Log.i(TAG, "Scanning all GATT services…")
             for (svc in g.services) {
+                val short = svc.uuid.toString().take(8).lowercase()
+                if (short in SKIP_UUIDS) continue
                 findCharsByProperties(svc)
                 if (writeCharacteristic != null) {
-                    Log.i(TAG, "Found chars in service: ${svc.uuid}")
+                    Log.i(TAG, "Found usable chars in service ${svc.uuid}")
                     break
                 }
             }
         }
 
-        // Enable notifications
-        if (notifyCharacteristic != null) {
-            enableNotifications(g, notifyCharacteristic!!)
-        } else if (writeCharacteristic != null) {
-            // Some Sony devices use same char for write + notify
-            val props = writeCharacteristic!!.properties
-            if (props and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
-                props and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
-                notifyCharacteristic = writeCharacteristic
-                enableNotifications(g, writeCharacteristic!!)
+        // Enable notifications on whatever we found
+        val notifyCh = notifyCharacteristic
+            ?: writeCharacteristic?.takeIf { ch ->
+                val p = ch.properties
+                p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
+                    p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
             }
+        if (notifyCh != null) {
+            notifyCharacteristic = notifyCh
+            enableNotifications(g, notifyCh)
         }
 
-        if (writeCharacteristic != null) {
-            Log.i(TAG, "BLE ready: write=${writeCharacteristic!!.uuid} notify=${notifyCharacteristic?.uuid}")
-        } else {
-            Log.w(TAG, "No suitable BLE characteristics found")
-        }
+        Log.i(TAG, "BLE chars: write=${writeCharacteristic?.uuid} notify=${notifyCharacteristic?.uuid}")
     }
 
     private fun findCharsByProperties(svc: BluetoothGattService) {
         for (ch in svc.characteristics) {
-            val props = ch.properties
-            val canWrite = props and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ||
-                props and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
-            val canNotify = props and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
-                props and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
+            val p = ch.properties
+            val canWrite = p and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ||
+                p and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+            val canNotify = p and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
+                p and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
 
             if (canWrite && writeCharacteristic == null) writeCharacteristic = ch
             if (canNotify && notifyCharacteristic == null) notifyCharacteristic = ch
@@ -421,7 +527,7 @@ class SonyBluetoothManager(private val context: Context) {
             desc.value = value
             @Suppress("DEPRECATION")
             g.writeDescriptor(desc)
-            Log.i(TAG, "BLE notifications enabled on ${ch.uuid}")
+            Log.i(TAG, "Notifications enabled on ${ch.uuid}")
         }
     }
 
@@ -444,7 +550,7 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  Classic RFCOMM (fallback for older models)
+    //  Classic RFCOMM
     // ══════════════════════════════════════════════════════════════
 
     private fun tryRfcommConnect(device: BluetoothDevice, uuid: UUID, secure: Boolean): BluetoothSocket? {
@@ -456,10 +562,10 @@ class SonyBluetoothManager(private val context: Context) {
                 device.createInsecureRfcommSocketToServiceRecord(uuid)
             }
             sock.connect()
-            Log.i(TAG, "RFCOMM connected: ${if (secure) "secure" else "insecure"} UUID=$uuid")
+            Log.i(TAG, "RFCOMM ok: ${if (secure) "sec" else "insec"} $uuid")
             sock
         } catch (e: IOException) {
-            Log.w(TAG, "RFCOMM failed: UUID=$uuid ${e.message}")
+            Log.w(TAG, "RFCOMM fail: $uuid ${e.message}")
             null
         } catch (e: SecurityException) {
             null
@@ -467,16 +573,16 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun tryReflectionConnect(device: BluetoothDevice): BluetoothSocket? {
+    private fun tryReflectionConnect(device: BluetoothDevice, channel: Int): BluetoothSocket? {
         return try {
             closeSocket()
-            val method = device.javaClass.getMethod("createRfcommSocket", Int::class.java)
-            val sock = method.invoke(device, 1) as BluetoothSocket
+            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.java)
+            val sock = m.invoke(device, channel) as BluetoothSocket
             sock.connect()
-            Log.i(TAG, "RFCOMM connected via reflection channel 1")
+            Log.i(TAG, "RFCOMM reflection ch=$channel ok")
             sock
         } catch (e: Exception) {
-            Log.w(TAG, "RFCOMM reflection failed: ${e.message}")
+            Log.w(TAG, "RFCOMM reflection ch=$channel fail: ${e.message}")
             null
         }
     }
@@ -532,7 +638,7 @@ class SonyBluetoothManager(private val context: Context) {
                     }
                 }
             } catch (e: IOException) {
-                Log.w(TAG, "RFCOMM read loop ended: ${e.message}")
+                Log.w(TAG, "RFCOMM read ended: ${e.message}")
             }
             onDisconnected()
         }
@@ -649,7 +755,7 @@ class SonyBluetoothManager(private val context: Context) {
         }
     }
 
-    // ── I/O dispatch (BLE or RFCOMM) ───────────────────────────────
+    // ── I/O dispatch ───────────────────────────────────────────────
 
     private suspend fun sendBytes(data: ByteArray) {
         when (connectionMode) {
@@ -664,9 +770,7 @@ class SonyBluetoothManager(private val context: Context) {
         val g = gatt ?: return
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                g.writeCharacteristic(
-                    ch, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                )
+                g.writeCharacteristic(ch, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
             } else {
                 @Suppress("DEPRECATION")
                 ch.value = data
