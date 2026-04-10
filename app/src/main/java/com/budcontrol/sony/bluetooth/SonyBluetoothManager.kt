@@ -176,7 +176,7 @@ class SonyBluetoothManager(private val context: Context) {
             val sock = tryRfcommConnect(device, uuid, secure = true)
                 ?: tryRfcommConnect(device, uuid, secure = false)
             if (sock != null) {
-                onRfcommConnected(sock, device)
+                onRfcommConnected(sock, device, "RFCOMM uuid=$shortId")
                 return
             }
         }
@@ -186,7 +186,7 @@ class SonyBluetoothManager(private val context: Context) {
         for (channel in listOf(1, 2, 3, 5, 10)) {
             val sock = tryReflectionConnect(device, channel)
             if (sock != null) {
-                onRfcommConnected(sock, device)
+                onRfcommConnected(sock, device, "RFCOMM-reflect ch=$channel")
                 return
             }
         }
@@ -441,17 +441,26 @@ class SonyBluetoothManager(private val context: Context) {
         if (connected) {
             bleConnected = true
             connectionMode = ConnectionMode.BLE
+            val svcUuid = writeCharacteristic?.service?.uuid?.toString()?.take(8) ?: "?"
+            val chUuid = writeCharacteristic?.uuid?.toString()?.take(8) ?: "?"
+            val transportLabel = when (transport) {
+                BluetoothDevice.TRANSPORT_LE -> "LE"
+                BluetoothDevice.TRANSPORT_BREDR -> "BR/EDR"
+                else -> "AUTO"
+            }
+            val method = "BLE-$transportLabel svc=$svcUuid ch=$chUuid"
+            Log.i(TAG, "Connected: $method")
             _state.value = _state.value.copy(
                 connectionStatus = ConnectionStatus.CONNECTED,
                 lastError = null,
-                connectAttempt = 0
+                connectAttempt = 0,
+                connectMethod = method,
+                protocolResponses = 0
             )
             SonyMessage.resetSeq()
             scope.launch {
-                delay(500)
-                sendBytes(SonyCommands.initHandshake())
-                delay(500)
-                requestAllStatus()
+                delay(300)
+                trySonyHandshake()
             }
         } else {
             closeGatt()
@@ -532,6 +541,9 @@ class SonyBluetoothManager(private val context: Context) {
     }
 
     private fun handleBleData(data: ByteArray) {
+        val hex = data.joinToString(" ") { "%02X".format(it) }
+        Log.i(TAG, "BLE RX (${data.size}B): $hex")
+
         bleAccum.addAll(data.toList())
 
         val accumulated = bleAccum.toByteArray()
@@ -546,6 +558,14 @@ class SonyBluetoothManager(private val context: Context) {
             for (frameBytes in frames) {
                 scope.launch { handleFrame(frameBytes) }
             }
+        } else if (bleAccum.size > 256) {
+            // Accumulator is growing with no valid frames — log and show the raw data
+            Log.w(TAG, "BLE accumulator overflow (${bleAccum.size}B), no Sony frames found")
+            _state.value = _state.value.copy(
+                protocolResponses = _state.value.protocolResponses + 1,
+                lastRawHex = "RAW: ${hex.take(60)}"
+            )
+            bleAccum.clear()
         }
     }
 
@@ -587,28 +607,28 @@ class SonyBluetoothManager(private val context: Context) {
         }
     }
 
-    private suspend fun onRfcommConnected(sock: BluetoothSocket, device: BluetoothDevice) {
+    private suspend fun onRfcommConnected(sock: BluetoothSocket, device: BluetoothDevice, method: String = "RFCOMM") {
         socket = sock
         inputStream = sock.inputStream
         outputStream = sock.outputStream
         connectionMode = ConnectionMode.RFCOMM
         SonyMessage.resetSeq()
 
+        Log.i(TAG, "Connected: $method")
         _state.value = _state.value.copy(
             connectionStatus = ConnectionStatus.CONNECTED,
             lastError = null,
-            connectAttempt = 0
+            connectAttempt = 0,
+            connectMethod = method,
+            protocolResponses = 0
         )
 
-        try {
-            sendBytes(SonyCommands.initHandshake())
-            delay(500)
-            requestAllStatus()
-        } catch (e: IOException) {
-            Log.w(TAG, "RFCOMM handshake failed: ${e.message}")
-        }
-
         startRfcommReadLoop()
+
+        scope.launch {
+            delay(300)
+            trySonyHandshake()
+        }
     }
 
     private fun startRfcommReadLoop() {
@@ -648,8 +668,72 @@ class SonyBluetoothManager(private val context: Context) {
     //  Shared protocol handling
     // ══════════════════════════════════════════════════════════════
 
+    /**
+     * Try multiple handshake variants. Newer Sony firmware may expect
+     * a different init sequence than the V1 protocol.
+     */
+    private suspend fun trySonyHandshake() {
+        try {
+            // V1 handshake (WF-1000XM4 era)
+            sendBytes(SonyCommands.initHandshake())
+            delay(800)
+
+            // If we got responses, proceed with status requests
+            if (_state.value.protocolResponses > 0) {
+                Log.i(TAG, "V1 handshake got ${_state.value.protocolResponses} responses, requesting status")
+                requestAllStatus()
+                return
+            }
+
+            // V2 handshake attempt — some models expect a raw 0x00 0x00 without framing
+            Log.i(TAG, "V1 handshake got 0 responses, trying V2 raw init")
+            sendBytes(byteArrayOf(0x00, 0x00))
+            delay(800)
+
+            if (_state.value.protocolResponses > 0) {
+                Log.i(TAG, "V2 raw init worked, requesting status")
+                requestAllStatus()
+                return
+            }
+
+            // V3 — try requesting battery directly (lightest possible probe)
+            Log.i(TAG, "No handshake response, sending battery probe")
+            sendBytes(SonyCommands.getBatteryStatus())
+            delay(500)
+            sendBytes(SonyCommands.getNcAsmStatus())
+            delay(500)
+
+            if (_state.value.protocolResponses == 0) {
+                Log.w(TAG, "No protocol responses after all handshake attempts")
+                _state.value = _state.value.copy(
+                    lastError = "Link up but earbuds not responding to commands.\n" +
+                        "Method: ${_state.value.connectMethod}\n" +
+                        "This may be a non-control channel."
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Handshake error: ${e.message}")
+        }
+    }
+
     private suspend fun handleFrame(frameBytes: ByteArray) {
-        val frame = SonyMessage.parseFrame(frameBytes) ?: return
+        val hex = frameBytes.joinToString(" ") { "%02X".format(it) }
+        Log.i(TAG, "RX frame (${frameBytes.size}B): $hex")
+
+        val frame = SonyMessage.parseFrame(frameBytes)
+        if (frame == null) {
+            Log.w(TAG, "Could not parse frame, raw hex logged above")
+            _state.value = _state.value.copy(
+                protocolResponses = _state.value.protocolResponses + 1,
+                lastRawHex = hex.take(60)
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            protocolResponses = _state.value.protocolResponses + 1,
+            lastRawHex = "dt=${"%02X".format(frame.dataType)} seq=${frame.seqNum} ${frame.payload.size}B"
+        )
 
         if (frame.dataType != SonyMessage.DATA_TYPE_ACK) {
             sendBytes(SonyMessage.buildAck(frame.seqNum))
@@ -668,7 +752,7 @@ class SonyBluetoothManager(private val context: Context) {
                 _state.value = _state.value.copy(speakToChat = response.enabled)
             is SonyParser.ParsedResponse.Ack -> {}
             is SonyParser.ParsedResponse.Unknown ->
-                Log.d(TAG, "Unknown: 0x${"%02X".format(response.feature)} ${response.data.size}B")
+                Log.d(TAG, "Unknown feature: 0x${"%02X".format(response.feature)} ${response.data.size}B")
         }
     }
 

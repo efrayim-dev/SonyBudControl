@@ -9,6 +9,9 @@ data class DeviceState(
     val deviceAddress: String? = null,
     val lastError: String? = null,
     val connectAttempt: Int = 0,
+    val connectMethod: String? = null,
+    val protocolResponses: Int = 0,
+    val lastRawHex: String? = null,
 
     val ancMode: SonyCommands.AncMode = SonyCommands.AncMode.OFF,
     val ancEnabled: Boolean = false,
