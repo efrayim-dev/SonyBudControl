@@ -32,6 +32,7 @@ jobs:
           cd /tmp/wrapper-gen
           "$GITHUB_WORKSPACE/gradle-${GRADLE_VER}/bin/gradle" wrapper --gradle-version ${GRADLE_VER}
           cp -f gradlew gradlew.bat "$GITHUB_WORKSPACE/"
+          mkdir -p "$GITHUB_WORKSPACE/gradle/wrapper"
           cp -f gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties "$GITHUB_WORKSPACE/gradle/wrapper/"
           cd "$GITHUB_WORKSPACE"
           rm -rf "gradle-${GRADLE_VER}-bin.zip" "gradle-${GRADLE_VER}" /tmp/wrapper-gen
