@@ -18,6 +18,9 @@ import com.budcontrol.sony.bluetooth.DeviceState
 import com.budcontrol.sony.bluetooth.SonyBluetoothManager
 import com.budcontrol.sony.protocol.SonyCommands
 import com.budcontrol.sony.wear.PhoneStateSync
+import com.budcontrol.sony.widget.AncToggleWidget
+import com.budcontrol.sony.widget.QuickControlWidget
+import com.budcontrol.sony.widget.StatusBarWidget
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -61,6 +64,7 @@ class SonyConnectionService : Service() {
         scope.launch {
             btManager.state.collectLatest { deviceState ->
                 updateNotification(deviceState)
+                syncWidgets(deviceState)
             }
         }
     }
@@ -71,6 +75,10 @@ class SonyConnectionService : Service() {
             ACTION_DISCONNECT -> {
                 btManager.disconnect()
                 stopSelf()
+            }
+            QuickControlWidget.ACTION_SET_AMBIENT -> {
+                val level = intent.getIntExtra("ambient_level", 10)
+                btManager.setAmbientLevel(level)
             }
         }
         return START_STICKY
@@ -174,5 +182,20 @@ class SonyConnectionService : Service() {
     private fun updateNotification(state: DeviceState) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(NOTIFICATION_ID, buildNotification(state))
+    }
+
+    private fun syncWidgets(state: DeviceState) {
+        val ctx = applicationContext
+        AncToggleWidget.updateAllWidgets(ctx, state.ancMode.name)
+        QuickControlWidget.updateState(ctx, state.ancMode.name, state.batteryAvg, state.ambientLevel)
+        StatusBarWidget.updateState(
+            ctx,
+            mode = state.ancMode.name,
+            batteryLeft = state.batteryLeft,
+            batteryRight = state.batteryRight,
+            batteryCase = state.batteryCase,
+            ambient = state.ambientLevel,
+            connected = state.connectionStatus == ConnectionStatus.CONNECTED
+        )
     }
 }

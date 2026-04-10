@@ -72,6 +72,23 @@
                 android:resource="@xml/widget_quick_control_info" />
         </receiver>
 
+        <!-- Status Bar Widget (4x1) -->
+        <receiver
+            android:name=".widget.StatusBarWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.budcontrol.sony.ACTION_SB_ANC" />
+                <action android:name="com.budcontrol.sony.ACTION_SB_AMBIENT_UP" />
+                <action android:name="com.budcontrol.sony.ACTION_SB_AMBIENT_DOWN" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_status_bar_info" />
+        </receiver>
+
         <!-- Boot receiver to reconnect -->
         <receiver
             android:name=".service.BootReceiver"

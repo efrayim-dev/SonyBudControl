@@ -5,4 +5,6 @@
     <string name="widget_anc_toggle_desc">Tap to cycle Noise Canceling, Ambient Sound, Off</string>
     <string name="widget_quick_control_name">Quick Controls</string>
     <string name="widget_quick_control_desc">ANC mode, battery, ambient level at a glance</string>
+    <string name="widget_status_bar_name">Status Bar</string>
+    <string name="widget_status_bar_desc">Battery levels, ANC mode, and ambient controls in a compact bar</string>
 </resources>
