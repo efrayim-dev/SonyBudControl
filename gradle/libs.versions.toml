@@ -28,6 +28,7 @@ material-icons-extended = { group = "androidx.compose.material", name = "materia
 glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance-appwidget" }
 glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "play-services-wearable" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version = "1.7.3" }
 wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wear-compose" }
 wear-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "wear-compose" }
 wear-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "wear-compose" }

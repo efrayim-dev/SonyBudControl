@@ -9,7 +9,6 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.tasks.await
 
 class PhoneStateSync(private val context: Context) {
 
@@ -28,7 +27,7 @@ class PhoneStateSync(private val context: Context) {
         }
     }
 
-    private suspend fun syncState(state: DeviceState) {
+    private fun syncState(state: DeviceState) {
         try {
             val putDataReq = PutDataMapRequest.create(WearPaths.STATE_PATH).apply {
                 dataMap.putBoolean("connected", state.connectionStatus == ConnectionStatus.CONNECTED)
@@ -43,8 +42,9 @@ class PhoneStateSync(private val context: Context) {
                 dataMap.putLong("timestamp", System.currentTimeMillis())
             }.asPutDataRequest().setUrgent()
 
-            dataClient.putDataItem(putDataReq).await()
-            Log.d(TAG, "State synced to watch")
+            dataClient.putDataItem(putDataReq)
+                .addOnSuccessListener { Log.d(TAG, "State synced to watch") }
+                .addOnFailureListener { e -> Log.w(TAG, "Failed to sync state: ${e.message}") }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to sync state: ${e.message}")
         }

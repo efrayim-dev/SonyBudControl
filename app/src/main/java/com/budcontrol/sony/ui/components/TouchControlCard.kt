@@ -2,6 +2,7 @@
 
 package com.budcontrol.sony.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -115,7 +116,7 @@ private fun ButtonModeSelector(
             ExposedDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                containerColor = SonyDarkSurface
+                modifier = Modifier.background(SonyDarkSurface)
             ) {
                 modes.forEach { mode ->
                     DropdownMenuItem(
