@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="sony_black">#FF0D0D0D</color>
+    <color name="sony_dark_surface">#FF1A1A1A</color>
+    <color name="sony_card">#FF242424</color>
+    <color name="amber_primary">#FFF5A623</color>
+    <color name="text_primary">#FFF0F0F0</color>
+    <color name="text_secondary">#FFA0A0A0</color>
+    <color name="anc_green">#FF4CAF50</color>
+    <color name="ambient_blue">#FF42A5F5</color>
+    <color name="anc_off_gray">#FF757575</color>
+    <color name="widget_bg">#E6242424</color>
+    <color name="widget_bg_dark">#F01A1A1A</color>
+</resources>

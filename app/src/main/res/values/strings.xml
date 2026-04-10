@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BudControl</string>
+    <string name="widget_anc_toggle_name">ANC Toggle</string>
+    <string name="widget_anc_toggle_desc">Tap to cycle Noise Canceling, Ambient Sound, Off</string>
+    <string name="widget_quick_control_name">Quick Controls</string>
+    <string name="widget_quick_control_desc">ANC mode, battery, ambient level at a glance</string>
+</resources>

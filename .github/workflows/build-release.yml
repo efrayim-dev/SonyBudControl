@@ -1,0 +1,70 @@
+name: Build & Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Generate Gradle wrapper
+        run: |
+          GRADLE_VER=8.5
+          curl -sLO "https://services.gradle.org/distributions/gradle-${GRADLE_VER}-bin.zip"
+          unzip -q "gradle-${GRADLE_VER}-bin.zip"
+          "./gradle-${GRADLE_VER}/bin/gradle" wrapper --gradle-version ${GRADLE_VER}
+          rm -rf "gradle-${GRADLE_VER}-bin.zip" "gradle-${GRADLE_VER}"
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/BudControl-v1.0-debug.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "BudControl v1.0"
+          tag_name: ${{ github.ref_name || 'v1.0.0' }}
+          body: |
+            ## BudControl v1.0 — Sony Earbuds Controller
+
+            A lightweight replacement for Sony Sound Connect with:
+            - Direct Bluetooth RFCOMM control (no Sony app needed)
+            - ANC / Ambient Sound / Off toggle
+            - Ambient level slider with Focus on Voice
+            - EQ presets
+            - Battery status (L/R/Case)
+            - Speak to Chat toggle
+            - Home screen widgets (1×1 ANC toggle, 2×2 quick controls)
+            - Persistent notification with ANC cycle action
+
+            ### Install
+            1. Download `BudControl-v1.0-debug.apk` below
+            2. Enable "Install from unknown sources" if prompted
+            3. Install and open — grant Bluetooth permissions
+            4. Tap the Bluetooth icon to connect to your paired Sony earbuds
+
+            Tested with: WF-1000XM4/XM5, WH-1000XM4/XM5, LinkBuds S
+          files: |
+            app/build/outputs/apk/debug/BudControl-v1.0-debug.apk
+          generate_release_notes: false
+          make_latest: true
+          draft: false
+          prerelease: false

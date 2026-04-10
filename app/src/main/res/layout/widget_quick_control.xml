@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/qc_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="12dp">
+
+    <!-- Row 1: ANC mode + battery -->
+    <LinearLayout
+        android:id="@+id/qc_mode_area"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/qc_mode_icon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_anc_off"
+            android:contentDescription="ANC" />
+
+        <TextView
+            android:id="@+id/qc_mode_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Off"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:fontFamily="sans-serif-medium"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/qc_battery_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="—"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:fontFamily="sans-serif" />
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#33FFFFFF"
+        android:layout_marginVertical="6dp" />
+
+    <!-- Row 2: Ambient level with +/- -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ambient"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:fontFamily="sans-serif" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/qc_ambient_down"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:text="−"
+            android:textSize="20sp"
+            android:textColor="@color/text_primary"
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
+
+        <TextView
+            android:id="@+id/qc_ambient_level"
+            android:layout_width="36dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="10"
+            android:textSize="18sp"
+            android:textColor="@color/amber_primary"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/qc_ambient_up"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:text="+"
+            android:textSize="20sp"
+            android:textColor="@color/text_primary"
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
+    </LinearLayout>
+
+</LinearLayout>
