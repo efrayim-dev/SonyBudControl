@@ -11,17 +11,33 @@ android {
         applicationId = "com.budcontrol.sony"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
+    }
+
+    signingConfigs {
+        create("ci") {
+            val home = System.getenv("HOME") ?: System.getenv("USERPROFILE") ?: "."
+            val ksFile = file("$home/.android/budcontrol.keystore")
+            val localKs = file("budcontrol.keystore")
+            storeFile = if (ksFile.exists()) ksFile else localKs
+            storePassword = "budcontrol"
+            keyAlias = "budcontrol"
+            keyPassword = "budcontrol"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = try { signingConfigs.getByName("ci") } catch (_: Exception) { signingConfig }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = try { signingConfigs.getByName("ci") } catch (_: Exception) { signingConfig }
         }
     }
 

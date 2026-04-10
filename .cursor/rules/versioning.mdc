@@ -1,21 +1,18 @@
-# Versioning Rule
+# Versioning Rule (SonyBudControl)
 
-Every time a new APK build is pushed to GitHub, the version **must** be incremented. Never reuse or overwrite an existing tag.
+See also the **global** rule at `~/.cursor/rules/android-versioning.mdc`.
 
-## Scheme
-- Tags follow **semver**: `vMAJOR.MINOR.PATCH` (e.g. `v1.0.0`, `v1.0.1`, `v1.1.0`)
-- `PATCH` increments for bug fixes and small changes
-- `MINOR` increments for new features
-- `MAJOR` increments for breaking / architectural changes
+## Current version
+- `versionCode`: check `app/build.gradle.kts` defaultConfig
+- `versionName`: must match the git tag (without the `v` prefix)
 
-## Workflow
-1. Before tagging, check the latest tag: `git tag --sort=-v:refname | head -1`
-2. Bump the appropriate segment
-3. Update `versionCode` and `versionName` in `app/build.gradle.kts` to match
-4. Update the APK filename in `.github/workflows/build-release.yml` to match
-5. Commit the version bump, then tag and push
+## Release process
+1. `git tag --sort=-v:refname | head -1` — find latest tag
+2. Bump `versionCode` (+1) and `versionName` in `app/build.gradle.kts`
+3. Commit: `git commit -am "Bump to vX.Y.Z"`
+4. Tag: `git tag vX.Y.Z`
+5. Push both: `git push origin master && git push origin vX.Y.Z`
+6. CI builds the APK and creates the GitHub release automatically
 
-## Never
-- Reuse or delete-and-recreate a tag
-- Push a release with the same version as an existing one
-- Forget to update `versionCode` (integer, must strictly increase) and `versionName` (display string) in the Gradle file
+## Signing
+The signing keystore (`app/budcontrol.keystore`) is committed to the repo so every CI build produces an APK with the same signature. Users can install updates without uninstalling.

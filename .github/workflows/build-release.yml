@@ -47,6 +47,30 @@ jobs:
           rm -rf "gradle-${GRADLE_VER}-bin.zip" "gradle-${GRADLE_VER}" /tmp/wrapper-gen
           chmod +x gradlew
 
+      - name: Bootstrap signing keystore
+        run: |
+          KSDIR="$HOME/.android"
+          KSPATH="$KSDIR/budcontrol.keystore"
+          mkdir -p "$KSDIR"
+          if [ -f "app/budcontrol.keystore" ]; then
+            echo "Using committed keystore"
+            cp app/budcontrol.keystore "$KSPATH"
+          else
+            echo "Generating new keystore (first run) and committing to repo"
+            keytool -genkeypair \
+              -keystore "$KSPATH" \
+              -alias budcontrol \
+              -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass budcontrol -keypass budcontrol \
+              -dname "CN=BudControl, O=BudControl, L=NYC, ST=NY, C=US"
+            cp "$KSPATH" app/budcontrol.keystore
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add app/budcontrol.keystore
+            git commit -m "chore: add persistent signing keystore"
+            git push origin HEAD:master
+          fi
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
 
