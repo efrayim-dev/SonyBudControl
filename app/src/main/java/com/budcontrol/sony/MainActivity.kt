@@ -71,6 +71,12 @@ class MainActivity : ComponentActivity() {
                 != PackageManager.PERMISSION_GRANTED) {
                 needed.add(Manifest.permission.BLUETOOTH_SCAN)
             }
+        } else {
+            // Pre-Android 12: BLE scanning requires location permission
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
