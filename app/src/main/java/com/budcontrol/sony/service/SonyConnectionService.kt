@@ -17,6 +17,7 @@ import com.budcontrol.sony.bluetooth.ConnectionStatus
 import com.budcontrol.sony.bluetooth.DeviceState
 import com.budcontrol.sony.bluetooth.SonyBluetoothManager
 import com.budcontrol.sony.protocol.SonyCommands
+import com.budcontrol.sony.wear.PhoneStateSync
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -37,6 +38,8 @@ class SonyConnectionService : Service() {
 
     private val binder = LocalBinder()
     private lateinit var btManager: SonyBluetoothManager
+    private lateinit var appMonitor: SonyAppMonitor
+    private lateinit var stateSync: PhoneStateSync
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     val state: StateFlow<DeviceState> get() = btManager.state
@@ -44,8 +47,16 @@ class SonyConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         btManager = SonyBluetoothManager(applicationContext)
+        appMonitor = SonyAppMonitor(applicationContext)
+        stateSync = PhoneStateSync(applicationContext)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(DeviceState()))
+
+        appMonitor.onSonyAppForeground = { btManager.releaseConnection() }
+        appMonitor.onSonyAppBackground = { btManager.reconnect() }
+        appMonitor.start()
+
+        stateSync.startSyncing(btManager.state)
 
         scope.launch {
             btManager.state.collectLatest { deviceState ->
@@ -69,6 +80,8 @@ class SonyConnectionService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        stateSync.destroy()
+        appMonitor.destroy()
         btManager.destroy()
         super.onDestroy()
     }
@@ -80,6 +93,10 @@ class SonyConnectionService : Service() {
     fun connect(device: BluetoothDevice) = btManager.connect(device)
 
     fun disconnect() = btManager.disconnect()
+
+    fun release() = btManager.releaseConnection()
+
+    fun reconnect() = btManager.reconnect()
 
     fun setAncMode(mode: SonyCommands.AncMode) = btManager.setAncMode(mode)
 
@@ -94,6 +111,11 @@ class SonyConnectionService : Service() {
     fun setCustomEq(bands: IntArray) = btManager.setCustomEq(bands)
 
     fun setSpeakToChat(enabled: Boolean) = btManager.setSpeakToChat(enabled)
+
+    fun setWideAreaTap(enabled: Boolean) = btManager.setWideAreaTap(enabled)
+
+    fun setButtonModes(left: SonyCommands.ButtonMode, right: SonyCommands.ButtonMode) =
+        btManager.setButtonModes(left, right)
 
     fun refreshStatus() = btManager.requestAllStatus()
 
@@ -132,6 +154,7 @@ class SonyConnectionService : Service() {
             }
             ConnectionStatus.CONNECTING -> "Connecting…"
             ConnectionStatus.RECONNECTING -> "Reconnecting…"
+            ConnectionStatus.RELEASED -> "Released for Sony app"
             ConnectionStatus.DISCONNECTED -> "Disconnected"
         }
 

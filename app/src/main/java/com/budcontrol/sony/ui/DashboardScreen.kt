@@ -31,11 +31,15 @@ fun DashboardScreen(
     onDismissDevicePicker: () -> Unit,
     onConnectDevice: (BluetoothDevice) -> Unit,
     onDisconnect: () -> Unit,
+    onRelease: () -> Unit,
+    onReconnect: () -> Unit,
     onAncMode: (SonyCommands.AncMode) -> Unit,
     onAmbientLevel: (Int) -> Unit,
     onFocusOnVoice: (Boolean) -> Unit,
     onEqPreset: (SonyCommands.EqPreset) -> Unit,
     onSpeakToChat: (Boolean) -> Unit,
+    onWideAreaTap: (Boolean) -> Unit,
+    onButtonModes: (SonyCommands.ButtonMode, SonyCommands.ButtonMode) -> Unit,
     onRefresh: () -> Unit
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -81,7 +85,9 @@ fun DashboardScreen(
             ConnectionHeader(
                 state = state,
                 onConnectClick = onShowDevicePicker,
-                onDisconnectClick = onDisconnect
+                onDisconnectClick = onDisconnect,
+                onReleaseClick = onRelease,
+                onReconnectClick = onReconnect
             )
 
             AncSelector(
@@ -111,6 +117,19 @@ fun DashboardScreen(
                 enabled = controlsEnabled,
                 speakToChatOn = state.speakToChat,
                 onToggle = onSpeakToChat
+            )
+
+            WideAreaTapCard(
+                enabled = controlsEnabled,
+                wideAreaTapOn = state.wideAreaTap,
+                onToggle = onWideAreaTap
+            )
+
+            TouchControlCard(
+                enabled = controlsEnabled,
+                leftMode = state.leftButtonMode,
+                rightMode = state.rightButtonMode,
+                onModesChanged = onButtonModes
             )
 
             Spacer(Modifier.height(24.dp))

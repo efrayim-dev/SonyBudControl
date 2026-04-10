@@ -71,13 +71,15 @@ jobs:
             git push origin HEAD:master
           fi
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build debug APKs (phone + wear)
+        run: ./gradlew :app:assembleDebug :wear:assembleDebug --no-daemon
 
-      - name: Rename APK
+      - name: Rename APKs
         run: |
           mv app/build/outputs/apk/debug/app-debug.apk \
              "app/build/outputs/apk/debug/BudControl-${{ steps.version.outputs.tag }}-debug.apk"
+          mv wear/build/outputs/apk/debug/wear-debug.apk \
+             "wear/build/outputs/apk/debug/BudControl-Wear-${{ steps.version.outputs.tag }}-debug.apk"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -87,15 +89,26 @@ jobs:
           body: |
             ## BudControl ${{ steps.version.outputs.ver }}
 
-            Download the APK below, install on your Android phone, and connect to your Sony earbuds.
+            Download the APKs below. Phone APK goes on your Android phone, Wear APK goes on your Wear OS watch.
 
-            ### Install
+            ### What's New
+            - Sony app coexistence (auto-release/reconnect when Sony app opens)
+            - Wide area tap toggle
+            - Per-ear touch control mode customization
+            - Wear OS companion app (ANC, battery, quick controls)
+
+            ### Install (Phone)
             1. Download `BudControl-${{ steps.version.outputs.tag }}-debug.apk`
             2. Enable "Install from unknown sources" if prompted
             3. Open the app and grant Bluetooth permissions
             4. Tap the Bluetooth icon to pick your paired Sony earbuds
+
+            ### Install (Wear OS)
+            1. Download `BudControl-Wear-${{ steps.version.outputs.tag }}-debug.apk`
+            2. Sideload via `adb install` to your Wear OS watch
           files: |
             app/build/outputs/apk/debug/BudControl-${{ steps.version.outputs.tag }}-debug.apk
+            wear/build/outputs/apk/debug/BudControl-Wear-${{ steps.version.outputs.tag }}-debug.apk
           generate_release_notes: true
           make_latest: true
           draft: false

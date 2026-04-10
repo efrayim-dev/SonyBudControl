@@ -47,11 +47,15 @@ class MainActivity : ComponentActivity() {
                     onDismissDevicePicker = viewModel::dismissDevicePicker,
                     onConnectDevice = viewModel::connectToDevice,
                     onDisconnect = viewModel::disconnect,
+                    onRelease = viewModel::release,
+                    onReconnect = viewModel::reconnect,
                     onAncMode = viewModel::setAncMode,
                     onAmbientLevel = viewModel::setAmbientLevel,
                     onFocusOnVoice = viewModel::setFocusOnVoice,
                     onEqPreset = viewModel::setEqPreset,
                     onSpeakToChat = viewModel::setSpeakToChat,
+                    onWideAreaTap = viewModel::setWideAreaTap,
+                    onButtonModes = viewModel::setButtonModes,
                     onRefresh = { viewModel.refreshStatus() }
                 )
             }

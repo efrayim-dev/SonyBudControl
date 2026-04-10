@@ -38,11 +38,18 @@ object SonyParser {
         override fun hashCode(): Int = 31 * preset.hashCode() + (customBands?.contentHashCode() ?: 0)
     }
 
+    data class ButtonModeState(
+        val left: SonyCommands.ButtonMode,
+        val right: SonyCommands.ButtonMode
+    )
+
     sealed class ParsedResponse {
         data class NcAsm(val state: NcAsmState) : ParsedResponse()
         data class Battery(val state: BatteryState) : ParsedResponse()
         data class Equalizer(val state: EqState) : ParsedResponse()
         data class SpeakToChat(val enabled: Boolean) : ParsedResponse()
+        data class WideAreaTap(val enabled: Boolean) : ParsedResponse()
+        data class ButtonModes(val state: ButtonModeState) : ParsedResponse()
         data class InitReply(val protocolVersion: Int, val rawPayload: ByteArray) : ParsedResponse()
         data object Ack : ParsedResponse()
         data class Unknown(val payloadType: Byte, val data: ByteArray) : ParsedResponse()
@@ -66,6 +73,8 @@ object SonyParser {
                 0x11, 0x13 -> parseBatteryV1(payload)
 
                 0x57, 0x59 -> parseEq(payload)
+
+                0xD7, 0xD9 -> parseTouchSensor(payload)
 
                 0xF7, 0xF9 -> parseAutoPowerButtonMode(payload)
 
@@ -211,12 +220,41 @@ object SonyParser {
         return ParsedResponse.Equalizer(EqState(preset, bands))
     }
 
+    // ── Touch Sensor (V2: wide area tap sub 0xD1) ────────────────────
+
+    private fun parseTouchSensor(payload: ByteArray): ParsedResponse? {
+        if (payload.size < 4) return null
+
+        return when (payload[1].toInt() and 0xFF) {
+            0xD1 -> {
+                // V2 wide area tap: payload[3], inverted (0x00=enabled, 0x01=disabled)
+                val enabled = (payload[3].toInt() and 0xFF) == 0x00
+                Log.i(TAG, "Wide Area Tap: $enabled")
+                ParsedResponse.WideAreaTap(enabled)
+            }
+            else -> {
+                Log.d(TAG, "Touch sensor sub=${"%02X".format(payload[1])}")
+                ParsedResponse.Unknown(payload[0], payload)
+            }
+        }
+    }
+
     // ── Auto Power / Button Mode / Speak-to-Chat ────────────────────
 
     private fun parseAutoPowerButtonMode(payload: ByteArray): ParsedResponse? {
         if (payload.size < 3) return null
 
         return when (payload[1].toInt() and 0xFF) {
+            0x03 -> {
+                if (payload.size >= 5) {
+                    val left = SonyCommands.ButtonMode.fromWire(payload[3])
+                    val right = SonyCommands.ButtonMode.fromWire(payload[4])
+                    Log.i(TAG, "Button modes: L=$left R=$right")
+                    ParsedResponse.ButtonModes(ButtonModeState(left, right))
+                } else {
+                    ParsedResponse.Unknown(payload[0], payload)
+                }
+            }
             0x0C -> {
                 val disabled = (payload[2].toInt() and 0xFF) == 0x01
                 Log.i(TAG, "Speak-to-Chat: ${!disabled}")

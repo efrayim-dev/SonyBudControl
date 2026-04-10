@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Headphone icon centered in adaptive icon safe zone -->
+    <path
+        android:fillColor="#FFF5A623"
+        android:pathData="M54,24C40.2,24 29,35.2 29,49v16c0,2.2 1.8,4 4,4h4v-18h-4c0,-11.6 9.4,-21 21,-21s21,9.4 21,21h-4v18h4c2.2,0 4,-1.8 4,-4v-16c0,-13.8 -11.2,-25 -25,-25z"/>
+    <path
+        android:fillColor="#FFF5A623"
+        android:pathData="M38,73c0,2.2 1.8,4 4,4h2v-12h-2c-2.2,0 -4,1.8 -4,4v4z"/>
+    <path
+        android:fillColor="#FFF5A623"
+        android:pathData="M64,73c0,2.2 1.8,4 4,4h0c2.2,0 4,-1.8 4,-4v-4c0,-2.2 -1.8,-4 -4,-4h-2v12h2z"/>
+</vector>

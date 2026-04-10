@@ -28,7 +28,12 @@ data class DeviceState(
     val eqPreset: SonyCommands.EqPreset = SonyCommands.EqPreset.OFF,
     val customEqBands: IntArray? = null,
 
-    val speakToChat: Boolean = false
+    val speakToChat: Boolean = false,
+
+    val wideAreaTap: Boolean = true,
+
+    val leftButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.AMBIENT_SOUND_CONTROL,
+    val rightButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.PLAYBACK_CONTROL
 ) {
     val batteryAvg: Int
         get() {
@@ -59,6 +64,11 @@ data class DeviceState(
         customEqBands = state.customBands
     )
 
+    fun withButtonModes(state: SonyParser.ButtonModeState) = copy(
+        leftButtonMode = state.left,
+        rightButtonMode = state.right
+    )
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is DeviceState) return false
@@ -76,13 +86,17 @@ data class DeviceState(
             eqPreset == other.eqPreset &&
             customEqBands.contentEquals(other.customEqBands) &&
             speakToChat == other.speakToChat &&
+            wideAreaTap == other.wideAreaTap &&
+            leftButtonMode == other.leftButtonMode &&
+            rightButtonMode == other.rightButtonMode &&
             protocolResponses == other.protocolResponses
     }
 
     override fun hashCode(): Int = arrayOf(
         connectionStatus, deviceName, lastError, connectAttempt, ancMode,
         ancEnabled, ambientLevel, batteryLeft, batteryRight, batteryCase,
-        eqPreset, speakToChat, protocolResponses
+        eqPreset, speakToChat, wideAreaTap, leftButtonMode, rightButtonMode,
+        protocolResponses
     ).contentHashCode()
 }
 
@@ -90,5 +104,6 @@ enum class ConnectionStatus {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
-    RECONNECTING
+    RECONNECTING,
+    RELEASED
 }

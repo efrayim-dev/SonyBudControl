@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SonyBudControl"
 include(":app")
+include(":wear")

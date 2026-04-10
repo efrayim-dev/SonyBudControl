@@ -9,7 +9,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.BluetoothConnected
+import androidx.compose.material.icons.outlined.BluetoothDisabled
 import androidx.compose.material.icons.outlined.BluetoothSearching
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +30,8 @@ fun ConnectionHeader(
     state: DeviceState,
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit,
+    onReleaseClick: () -> Unit,
+    onReconnectClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isActive = state.connectionStatus == ConnectionStatus.CONNECTING ||
@@ -36,6 +41,7 @@ fun ConnectionHeader(
         when (state.connectionStatus) {
             ConnectionStatus.CONNECTED -> AncGreen
             ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> AmberPrimary
+            ConnectionStatus.RELEASED -> AmbientBlue
             ConnectionStatus.DISCONNECTED -> if (state.lastError != null) BatteryRed else AncOffGray
         },
         label = "statusColor"
@@ -89,6 +95,7 @@ fun ConnectionHeader(
                         val attempt = if (state.connectAttempt > 0) " (attempt ${state.connectAttempt})" else ""
                         (state.lastError ?: "Reconnecting…") + attempt
                     }
+                    ConnectionStatus.RELEASED -> "Released • Sony app can connect"
                     ConnectionStatus.DISCONNECTED -> {
                         state.lastError ?: "Tap to connect"
                     }
@@ -105,21 +112,55 @@ fun ConnectionHeader(
                 )
             }
 
-            IconButton(
-                onClick = {
-                    if (state.isConnected) onDisconnectClick() else onConnectClick()
+            when (state.connectionStatus) {
+                ConnectionStatus.CONNECTED -> {
+                    IconButton(onClick = onReleaseClick) {
+                        Icon(
+                            Icons.Rounded.LinkOff,
+                            contentDescription = "Release to Sony App",
+                            tint = AmbientBlue,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    IconButton(onClick = onDisconnectClick) {
+                        Icon(
+                            Icons.Outlined.BluetoothConnected,
+                            contentDescription = "Disconnect",
+                            tint = statusColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
-            ) {
-                Icon(
-                    imageVector = when (state.connectionStatus) {
-                        ConnectionStatus.CONNECTED -> Icons.Outlined.BluetoothConnected
-                        ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> Icons.Outlined.BluetoothSearching
-                        ConnectionStatus.DISCONNECTED -> Icons.Outlined.Bluetooth
-                    },
-                    contentDescription = "Connection",
-                    tint = statusColor,
-                    modifier = Modifier.size(28.dp)
-                )
+                ConnectionStatus.RELEASED -> {
+                    IconButton(onClick = onReconnectClick) {
+                        Icon(
+                            Icons.Rounded.Sync,
+                            contentDescription = "Reconnect",
+                            tint = AncGreen,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+                ConnectionStatus.CONNECTING, ConnectionStatus.RECONNECTING -> {
+                    IconButton(onClick = onDisconnectClick) {
+                        Icon(
+                            Icons.Outlined.BluetoothSearching,
+                            contentDescription = "Cancel",
+                            tint = statusColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+                ConnectionStatus.DISCONNECTED -> {
+                    IconButton(onClick = onConnectClick) {
+                        Icon(
+                            Icons.Outlined.Bluetooth,
+                            contentDescription = "Connect",
+                            tint = statusColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
             }
         }
     }

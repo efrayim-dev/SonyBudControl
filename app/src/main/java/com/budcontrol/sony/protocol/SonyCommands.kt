@@ -145,12 +145,48 @@ object SonyCommands {
         byteArrayOf(0xF6.toByte(), 0x0C)
     )
 
-    // ── Initialization ──────────────────────────────────────────────
+    // ── Wide Area Tap (V2, TOUCH_SENSOR family sub 0xD1) ──────────
+
+    fun getWideAreaTap(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0xD6.toByte(), 0xD1.toByte())
+    )
 
     /**
-     * Protocol init request. Sent as COMMAND_1 with payload [0x00, 0x00].
-     * V1 devices reply with 4-byte payload; V2 with 8-byte payload.
+     * Enable/disable wide area tap. V2 uses inverted logic:
+     * 0x00 = enabled, 0x01 = disabled.
      */
+    fun setWideAreaTap(enabled: Boolean): ByteArray {
+        val flag: Byte = if (enabled) 0x00 else 0x01
+        return SonyMessage.buildCommand(
+            byteArrayOf(0xD8.toByte(), 0xD1.toByte(), 0x00, flag)
+        )
+    }
+
+    // ── Button Mode (V2, per-ear touch function assignment) ─────────
+
+    enum class ButtonMode(val wire: Byte, val displayName: String) {
+        OFF(0xFF.toByte(), "Off"),
+        AMBIENT_SOUND_CONTROL(0x00, "Ambient Sound Control"),
+        PLAYBACK_CONTROL(0x20, "Playback Control"),
+        VOLUME_CONTROL(0x10, "Volume Control");
+
+        companion object {
+            fun fromWire(b: Byte): ButtonMode =
+                entries.firstOrNull { it.wire == b } ?: OFF
+        }
+    }
+
+    fun getButtonModes(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0xF6.toByte(), 0x03)
+    )
+
+    fun setButtonModes(left: ButtonMode, right: ButtonMode): ByteArray =
+        SonyMessage.buildCommand(
+            byteArrayOf(0xF8.toByte(), 0x03, 0x02, left.wire, right.wire)
+        )
+
+    // ── Initialization ──────────────────────────────────────────────
+
     fun initRequest(): ByteArray = SonyMessage.buildCommand(
         byteArrayOf(0x00, 0x00)
     )

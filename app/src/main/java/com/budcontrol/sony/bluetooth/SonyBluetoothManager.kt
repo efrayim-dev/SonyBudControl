@@ -108,6 +108,24 @@ class SonyBluetoothManager(private val context: Context) {
         _state.value = DeviceState()
     }
 
+    fun releaseConnection() {
+        autoReconnect = false
+        connectJob?.cancel()
+        closeAll()
+        _state.value = _state.value.copy(
+            connectionStatus = ConnectionStatus.RELEASED,
+            lastError = null
+        )
+        Log.i(TAG, "Released connection (device remembered: ${targetDevice?.name})")
+    }
+
+    fun reconnect() {
+        val device = targetDevice ?: return
+        autoReconnect = true
+        connectJob?.cancel()
+        connectJob = scope.launch { connectSequence(device) }
+    }
+
     /**
      * Connection strategy optimized for WF-1000XM5:
      *  1. RFCOMM on V2 UUID (956c7b26) — the XM4/XM5 control channel
@@ -422,6 +440,10 @@ class SonyBluetoothManager(private val context: Context) {
                 _state.value = _state.value.withEq(response.state)
             is SonyParser.ParsedResponse.SpeakToChat ->
                 _state.value = _state.value.copy(speakToChat = response.enabled)
+            is SonyParser.ParsedResponse.WideAreaTap ->
+                _state.value = _state.value.copy(wideAreaTap = response.enabled)
+            is SonyParser.ParsedResponse.ButtonModes ->
+                _state.value = _state.value.withButtonModes(response.state)
             is SonyParser.ParsedResponse.Ack -> {}
             is SonyParser.ParsedResponse.Unknown ->
                 Log.d(TAG, "Unknown: 0x${"%02X".format(response.payloadType)} ${response.data.size}B")
@@ -487,6 +509,14 @@ class SonyBluetoothManager(private val context: Context) {
         scope.launch { sendBytes(SonyCommands.setSpeakToChat(enabled)) }
     }
 
+    fun setWideAreaTap(enabled: Boolean) {
+        scope.launch { sendBytes(SonyCommands.setWideAreaTap(enabled)) }
+    }
+
+    fun setButtonModes(left: SonyCommands.ButtonMode, right: SonyCommands.ButtonMode) {
+        scope.launch { sendBytes(SonyCommands.setButtonModes(left, right)) }
+    }
+
     fun requestAllStatus() {
         scope.launch {
             sendBytes(SonyCommands.getNcAsmStatus())
@@ -498,6 +528,10 @@ class SonyBluetoothManager(private val context: Context) {
             sendBytes(SonyCommands.getEqStatus())
             delay(200)
             sendBytes(SonyCommands.getSpeakToChatStatus())
+            delay(200)
+            sendBytes(SonyCommands.getWideAreaTap())
+            delay(200)
+            sendBytes(SonyCommands.getButtonModes())
         }
     }
 
