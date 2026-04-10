@@ -11,8 +11,8 @@ android {
         applicationId = "com.budcontrol.sony"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.6.1"
+        versionCode = 12
+        versionName = "1.6.2"
     }
 
     signingConfigs {

@@ -32,7 +32,7 @@ data class DeviceState(
 
     val wideAreaTap: Boolean = true,
 
-    val leftButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.AMBIENT_SOUND_CONTROL,
+    val leftButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.NOISE_CONTROL,
     val rightButtonMode: SonyCommands.ButtonMode = SonyCommands.ButtonMode.PLAYBACK_CONTROL
 ) {
     val batteryAvg: Int

@@ -166,6 +166,7 @@ object SonyCommands {
 
     enum class ButtonMode(val wire: Byte, val displayName: String) {
         OFF(0xFF.toByte(), "Off"),
+        NOISE_CONTROL(0x35, "Noise Control"),
         AMBIENT_SOUND_CONTROL(0x00, "Ambient Sound Control"),
         PLAYBACK_CONTROL(0x20, "Playback Control"),
         VOLUME_CONTROL(0x10, "Volume Control");
