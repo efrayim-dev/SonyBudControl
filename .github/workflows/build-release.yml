@@ -66,7 +66,7 @@ jobs:
             cp "$KSPATH" app/budcontrol.keystore
             git config user.name "github-actions"
             git config user.email "actions@github.com"
-            git add app/budcontrol.keystore
+            git add -f app/budcontrol.keystore
             git commit -m "chore: add persistent signing keystore"
             git push origin HEAD:master
           fi
