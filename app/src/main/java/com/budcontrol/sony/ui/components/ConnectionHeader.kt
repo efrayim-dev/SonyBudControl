@@ -81,11 +81,8 @@ fun ConnectionHeader(
 
                 val statusText = when (state.connectionStatus) {
                     ConnectionStatus.CONNECTED -> {
-                        val method = state.connectMethod ?: "unknown"
-                        val rx = state.protocolResponses
-                        val extra = if (state.lastError != null) "\n${state.lastError}" else ""
-                        val raw = if (state.lastRawHex != null) "\nLast: ${state.lastRawHex}" else ""
-                        "Connected via $method\n${rx} protocol responses$extra$raw"
+                        val battery = if (state.batteryAvg >= 0) " • ${state.batteryAvg}%" else ""
+                        "Connected$battery"
                     }
                     ConnectionStatus.CONNECTING -> state.lastError ?: "Connecting…"
                     ConnectionStatus.RECONNECTING -> {
@@ -98,13 +95,12 @@ fun ConnectionHeader(
                 }
 
                 val isError = state.connectionStatus == ConnectionStatus.DISCONNECTED && state.lastError != null
-                val isLong = statusText.length > 60
 
                 Text(
                     text = statusText,
-                    style = if (isLong) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (isError) BatteryRed.copy(alpha = 0.8f) else TextSecondary,
-                    maxLines = if (isLong) 8 else 2,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis
                 )
             }

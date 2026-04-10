@@ -3,7 +3,8 @@ package com.budcontrol.sony.protocol
 import android.util.Log
 
 /**
- * Parses response payloads from the Sony headphones into typed state objects.
+ * Parses V2 protocol response payloads from Sony headphones.
+ * Based on Gadgetbridge SonyProtocolImplV2 (GPLv3).
  */
 object SonyParser {
 
@@ -12,7 +13,6 @@ object SonyParser {
     data class NcAsmState(
         val enabled: Boolean,
         val mode: SonyCommands.AncMode,
-        val windReduction: Boolean,
         val ambientLevel: Int,
         val focusOnVoice: Boolean
     )
@@ -43,12 +43,13 @@ object SonyParser {
         data class Battery(val state: BatteryState) : ParsedResponse()
         data class Equalizer(val state: EqState) : ParsedResponse()
         data class SpeakToChat(val enabled: Boolean) : ParsedResponse()
+        data class InitReply(val protocolVersion: Int, val rawPayload: ByteArray) : ParsedResponse()
         data object Ack : ParsedResponse()
-        data class Unknown(val feature: Byte, val data: ByteArray) : ParsedResponse()
+        data class Unknown(val payloadType: Byte, val data: ByteArray) : ParsedResponse()
     }
 
     fun parse(frame: SonyMessage.ParsedFrame): ParsedResponse? {
-        if (frame.dataType == SonyMessage.DATA_TYPE_ACK) {
+        if (frame.isAck) {
             return ParsedResponse.Ack
         }
 
@@ -56,12 +57,22 @@ object SonyParser {
         if (payload.isEmpty()) return null
 
         return try {
-            when (payload[0]) {
-                0x68.toByte() -> parseNcAsm(payload)
-                0x22.toByte() -> parseBattery(payload)
-                0x58.toByte() -> parseEq(payload)
-                0x6C.toByte() -> parseSpeakToChat(payload)
-                else -> ParsedResponse.Unknown(payload[0], payload)
+            when (payload[0].toInt() and 0xFF) {
+                0x01 -> parseInitReply(payload)
+
+                0x67, 0x69 -> parseNcAsm(payload)
+
+                0x23, 0x25 -> parseBatteryV2(payload)
+                0x11, 0x13 -> parseBatteryV1(payload)
+
+                0x57, 0x59 -> parseEq(payload)
+
+                0xF7, 0xF9 -> parseAutoPowerButtonMode(payload)
+
+                else -> {
+                    Log.d(TAG, "Unknown payloadType: 0x${"%02X".format(payload[0])} (${payload.size}B)")
+                    ParsedResponse.Unknown(payload[0], payload)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse payload: ${payload.toHexString()}", e)
@@ -69,29 +80,97 @@ object SonyParser {
         }
     }
 
-    private fun parseNcAsm(payload: ByteArray): ParsedResponse.NcAsm {
-        val enabled = payload.getOrElse(2) { 0 }.toInt() != 0
-        val modeRaw = payload.getOrElse(3) { 0 }.toInt()
-        val windReduction = payload.getOrElse(5) { 0 }.toInt() != 0
-        val ambientLevel = payload.getOrElse(6) { 0 }.toInt() and 0xFF
-        val focusOnVoice = payload.getOrElse(7) { 0 }.toInt() != 0
+    // ── Init Reply ──────────────────────────────────────────────────
 
-        val mode = when {
-            !enabled -> SonyCommands.AncMode.OFF
-            modeRaw == 0x02 -> SonyCommands.AncMode.NOISE_CANCELING
-            modeRaw == 0x01 -> SonyCommands.AncMode.AMBIENT_SOUND
-            else -> SonyCommands.AncMode.OFF
-        }
-
-        return ParsedResponse.NcAsm(
-            NcAsmState(enabled, mode, windReduction, ambientLevel, focusOnVoice)
-        )
+    private fun parseInitReply(payload: ByteArray): ParsedResponse.InitReply {
+        val version = if (payload.size == 8) 2 else 1
+        Log.i(TAG, "Init reply: V$version (${payload.size}B) ${payload.toHexString()}")
+        return ParsedResponse.InitReply(version, payload)
     }
 
-    private fun parseBattery(payload: ByteArray): ParsedResponse.Battery {
-        // Battery payload format varies by model. Common TWS format:
-        // [0x22] [cmd] [count] [type1 level1 charging1] [type2 level2 charging2] ...
-        // type: 0x01=left, 0x02=right, 0x03=case
+    // ── Ambient Sound Control (V2) ──────────────────────────────────
+
+    private fun parseNcAsm(payload: ByteArray): ParsedResponse.NcAsm {
+        if (payload.size < 6) {
+            Log.w(TAG, "ANC payload too short: ${payload.size}")
+            return ParsedResponse.NcAsm(NcAsmState(false, SonyCommands.AncMode.OFF, 0, false))
+        }
+
+        val sub = payload[1].toInt() and 0xFF
+        val includesWind = sub == 0x17 && payload.size > 7
+
+        val ncEnabled = (payload[3].toInt() and 0xFF) == 0x01
+
+        var mode = SonyCommands.AncMode.OFF
+        if (ncEnabled) {
+            if (includesWind) {
+                val windByte = payload[5].toInt() and 0xFF
+                val ambientByte = payload[4].toInt() and 0xFF
+                mode = when {
+                    windByte == 0x03 || windByte == 0x05 -> SonyCommands.AncMode.WIND_NOISE_REDUCTION
+                    windByte == 0x02 && ambientByte == 0x00 -> SonyCommands.AncMode.NOISE_CANCELING
+                    windByte == 0x02 && ambientByte == 0x01 -> SonyCommands.AncMode.AMBIENT_SOUND
+                    else -> SonyCommands.AncMode.NOISE_CANCELING
+                }
+            } else {
+                val ambientByte = payload[4].toInt() and 0xFF
+                mode = when (ambientByte) {
+                    0x01 -> SonyCommands.AncMode.AMBIENT_SOUND
+                    else -> SonyCommands.AncMode.NOISE_CANCELING
+                }
+            }
+        }
+
+        val focusVoiceIdx = payload.size - 2
+        val ambientLevelIdx = payload.size - 1
+        val focusOnVoice = (payload[focusVoiceIdx].toInt() and 0xFF) == 0x01
+        val ambientLevel = payload[ambientLevelIdx].toInt() and 0xFF
+
+        Log.i(TAG, "ANC: mode=$mode enabled=$ncEnabled ambient=$ambientLevel focus=$focusOnVoice")
+        return ParsedResponse.NcAsm(NcAsmState(ncEnabled, mode, ambientLevel, focusOnVoice))
+    }
+
+    // ── Battery (V2 format) ─────────────────────────────────────────
+
+    private fun parseBatteryV2(payload: ByteArray): ParsedResponse.Battery {
+        if (payload.size < 2) {
+            return ParsedResponse.Battery(BatteryState(-1, -1, -1, false, false, false))
+        }
+
+        val batteryTypeCode = payload[1].toInt() and 0xFF
+        var left = -1; var right = -1; var case_ = -1
+        var leftCharging = false; var rightCharging = false; var caseCharging = false
+
+        when (batteryTypeCode) {
+            0x09 -> {
+                if (payload.size >= 6) {
+                    left = payload[2].toInt() and 0xFF
+                    leftCharging = (payload[3].toInt() and 0xFF) != 0
+                    right = payload[4].toInt() and 0xFF
+                    rightCharging = (payload[5].toInt() and 0xFF) != 0
+                }
+            }
+            0x0A -> {
+                if (payload.size >= 4) {
+                    case_ = payload[2].toInt() and 0xFF
+                    caseCharging = (payload[3].toInt() and 0xFF) != 0
+                }
+            }
+            0x01 -> {
+                if (payload.size >= 4) {
+                    left = payload[2].toInt() and 0xFF
+                    leftCharging = (payload[3].toInt() and 0xFF) != 0
+                    right = left
+                    rightCharging = leftCharging
+                }
+            }
+        }
+
+        Log.i(TAG, "Battery V2: L=$left R=$right C=$case_ (type=0x${"%02X".format(batteryTypeCode)})")
+        return ParsedResponse.Battery(BatteryState(left, right, case_, leftCharging, rightCharging, caseCharging))
+    }
+
+    private fun parseBatteryV1(payload: ByteArray): ParsedResponse.Battery {
         var left = -1; var right = -1; var case_ = -1
         var leftCharging = false; var rightCharging = false; var caseCharging = false
 
@@ -105,29 +184,49 @@ object SonyParser {
             when (type) {
                 0x01 -> { left = level; leftCharging = charging }
                 0x02 -> { right = level; rightCharging = charging }
-                0x03 -> { case_ = level; caseCharging = charging }
+                0x03, 0x09, 0x0A -> { case_ = level; caseCharging = charging }
             }
             offset += 3
         }
 
-        return ParsedResponse.Battery(
-            BatteryState(left, right, case_, leftCharging, rightCharging, caseCharging)
-        )
+        Log.i(TAG, "Battery V1: L=$left R=$right C=$case_")
+        return ParsedResponse.Battery(BatteryState(left, right, case_, leftCharging, rightCharging, caseCharging))
     }
 
+    // ── Equalizer ───────────────────────────────────────────────────
+
     private fun parseEq(payload: ByteArray): ParsedResponse.Equalizer {
-        val presetId = payload.getOrElse(2) { 0 }
+        if (payload.size < 3) {
+            return ParsedResponse.Equalizer(EqState(SonyCommands.EqPreset.OFF, null))
+        }
+
+        val presetId = payload[2]
         val preset = SonyCommands.EqPreset.fromId(presetId)
-        val bands = if (preset == SonyCommands.EqPreset.CUSTOM && payload.size >= 8) {
-            IntArray(5) { payload[3 + it].toInt() }
+
+        val bands = if (preset == SonyCommands.EqPreset.CUSTOM && payload.size >= 9) {
+            IntArray(5) { (payload[4 + it].toInt() and 0xFF) - 10 }
         } else null
 
+        Log.i(TAG, "EQ: preset=$preset bands=${bands?.toList()}")
         return ParsedResponse.Equalizer(EqState(preset, bands))
     }
 
-    private fun parseSpeakToChat(payload: ByteArray): ParsedResponse.SpeakToChat {
-        val enabled = payload.getOrElse(2) { 0 }.toInt() != 0
-        return ParsedResponse.SpeakToChat(enabled)
+    // ── Auto Power / Button Mode / Speak-to-Chat ────────────────────
+
+    private fun parseAutoPowerButtonMode(payload: ByteArray): ParsedResponse? {
+        if (payload.size < 3) return null
+
+        return when (payload[1].toInt() and 0xFF) {
+            0x0C -> {
+                val disabled = (payload[2].toInt() and 0xFF) == 0x01
+                Log.i(TAG, "Speak-to-Chat: ${!disabled}")
+                ParsedResponse.SpeakToChat(!disabled)
+            }
+            else -> {
+                Log.d(TAG, "Button mode sub=${"%02X".format(payload[1])}")
+                ParsedResponse.Unknown(payload[0], payload)
+            }
+        }
     }
 
     private fun ByteArray.toHexString(): String =

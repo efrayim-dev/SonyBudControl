@@ -89,8 +89,6 @@ class SonyConnectionService : Service() {
 
     fun setFocusOnVoice(enabled: Boolean) = btManager.setFocusOnVoice(enabled)
 
-    fun setWindReduction(enabled: Boolean) = btManager.setWindReduction(enabled)
-
     fun setEqPreset(preset: SonyCommands.EqPreset) = btManager.setEqPreset(preset)
 
     fun setCustomEq(bands: IntArray) = btManager.setCustomEq(bands)

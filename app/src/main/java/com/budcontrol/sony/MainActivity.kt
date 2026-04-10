@@ -38,15 +38,11 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.deviceState.collectAsState()
                 val pairedDevices by viewModel.pairedDevices.collectAsState()
                 val showPicker by viewModel.showDevicePicker.collectAsState()
-                val sonyInstalled by viewModel.sonyAppInstalled.collectAsState()
-                val a11yService by viewModel.accessibilityEnabled.collectAsState()
 
                 DashboardScreen(
                     state = state,
                     pairedDevices = pairedDevices,
                     showDevicePicker = showPicker,
-                    sonyAppInstalled = sonyInstalled,
-                    accessibilityRunning = a11yService != null,
                     onShowDevicePicker = viewModel::showDevicePicker,
                     onDismissDevicePicker = viewModel::dismissDevicePicker,
                     onConnectDevice = viewModel::connectToDevice,
@@ -54,19 +50,12 @@ class MainActivity : ComponentActivity() {
                     onAncMode = viewModel::setAncMode,
                     onAmbientLevel = viewModel::setAmbientLevel,
                     onFocusOnVoice = viewModel::setFocusOnVoice,
-                    onWindReduction = viewModel::setWindReduction,
                     onEqPreset = viewModel::setEqPreset,
                     onSpeakToChat = viewModel::setSpeakToChat,
-                    onRefresh = { viewModel.refreshStatus() },
-                    onOpenAccessibilitySettings = viewModel::openAccessibilitySettings
+                    onRefresh = { viewModel.refreshStatus() }
                 )
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        viewModel.refreshSetupState()
     }
 
     private fun requestPermissionsIfNeeded() {

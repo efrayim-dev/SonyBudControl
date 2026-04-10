@@ -17,16 +17,13 @@ import com.budcontrol.sony.ui.theme.*
 fun AmbientSlider(
     ambientLevel: Int,
     focusOnVoice: Boolean,
-    windReduction: Boolean,
     ancMode: SonyCommands.AncMode,
     enabled: Boolean,
     onLevelChange: (Int) -> Unit,
     onFocusOnVoiceChange: (Boolean) -> Unit,
-    onWindReductionChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val showAmbient = ancMode == SonyCommands.AncMode.AMBIENT_SOUND
-    val showWind = ancMode == SonyCommands.AncMode.NOISE_CANCELING
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -90,25 +87,17 @@ fun AmbientSlider(
             }
 
             AnimatedVisibility(
-                visible = showWind,
-                enter = expandVertically(),
-                exit = shrinkVertically()
-            ) {
-                ToggleRow(
-                    label = "Wind Noise Reduction",
-                    checked = windReduction,
-                    enabled = enabled,
-                    onCheckedChange = onWindReductionChange
-                )
-            }
-
-            AnimatedVisibility(
-                visible = !showAmbient && !showWind,
+                visible = !showAmbient,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
                 Text(
-                    text = "Select NC or Ambient mode to adjust settings",
+                    text = when (ancMode) {
+                        SonyCommands.AncMode.NOISE_CANCELING -> "Noise Canceling active"
+                        SonyCommands.AncMode.WIND_NOISE_REDUCTION -> "Wind Noise Reduction active"
+                        SonyCommands.AncMode.OFF -> "Select NC or Ambient mode to adjust settings"
+                        SonyCommands.AncMode.AMBIENT_SOUND -> ""
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextTertiary
                 )

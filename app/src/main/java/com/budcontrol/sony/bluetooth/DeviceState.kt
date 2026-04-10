@@ -17,7 +17,6 @@ data class DeviceState(
     val ancEnabled: Boolean = false,
     val ambientLevel: Int = 0,
     val focusOnVoice: Boolean = false,
-    val windReduction: Boolean = false,
 
     val batteryLeft: Int = -1,
     val batteryRight: Int = -1,
@@ -43,17 +42,16 @@ data class DeviceState(
         ancMode = state.mode,
         ancEnabled = state.enabled,
         ambientLevel = state.ambientLevel,
-        focusOnVoice = state.focusOnVoice,
-        windReduction = state.windReduction
+        focusOnVoice = state.focusOnVoice
     )
 
     fun withBattery(state: SonyParser.BatteryState) = copy(
-        batteryLeft = state.left,
-        batteryRight = state.right,
-        batteryCase = state.case,
-        leftCharging = state.leftCharging,
-        rightCharging = state.rightCharging,
-        caseCharging = state.caseCharging
+        batteryLeft = if (state.left >= 0) state.left else batteryLeft,
+        batteryRight = if (state.right >= 0) state.right else batteryRight,
+        batteryCase = if (state.case >= 0) state.case else batteryCase,
+        leftCharging = if (state.left >= 0) state.leftCharging else leftCharging,
+        rightCharging = if (state.right >= 0) state.rightCharging else rightCharging,
+        caseCharging = if (state.case >= 0) state.caseCharging else caseCharging
     )
 
     fun withEq(state: SonyParser.EqState) = copy(
@@ -72,19 +70,19 @@ data class DeviceState(
             ancEnabled == other.ancEnabled &&
             ambientLevel == other.ambientLevel &&
             focusOnVoice == other.focusOnVoice &&
-            windReduction == other.windReduction &&
             batteryLeft == other.batteryLeft &&
             batteryRight == other.batteryRight &&
             batteryCase == other.batteryCase &&
             eqPreset == other.eqPreset &&
             customEqBands.contentEquals(other.customEqBands) &&
-            speakToChat == other.speakToChat
+            speakToChat == other.speakToChat &&
+            protocolResponses == other.protocolResponses
     }
 
     override fun hashCode(): Int = arrayOf(
         connectionStatus, deviceName, lastError, connectAttempt, ancMode,
         ancEnabled, ambientLevel, batteryLeft, batteryRight, batteryCase,
-        eqPreset, speakToChat
+        eqPreset, speakToChat, protocolResponses
     ).contentHashCode()
 }
 

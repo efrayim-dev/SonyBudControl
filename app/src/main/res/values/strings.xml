@@ -5,5 +5,4 @@
     <string name="widget_anc_toggle_desc">Tap to cycle Noise Canceling, Ambient Sound, Off</string>
     <string name="widget_quick_control_name">Quick Controls</string>
     <string name="widget_quick_control_desc">ANC mode, battery, ambient level at a glance</string>
-    <string name="accessibility_description">BudControl uses this service to read and control your Sony earbuds settings (ANC, EQ, battery) through the Sony Sound Connect app. Only the Sony app is monitored — no other app data is accessed.</string>
 </resources>

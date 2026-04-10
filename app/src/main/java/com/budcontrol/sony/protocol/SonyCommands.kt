@@ -1,89 +1,87 @@
 package com.budcontrol.sony.protocol
 
 /**
- * Command builders for the Sony proprietary Bluetooth protocol.
+ * Sony V2 protocol command builders.
  *
- * These byte sequences are derived from reverse-engineering efforts
- * (SonyHeadphonesClient, OpenSCQ30, and Wireshark captures).
- * Tested primarily against WF-1000XM4/XM5 and WH-1000XM4/XM5.
+ * Derived from Gadgetbridge's SonyProtocolImplV2 (GPLv3, José Rebelo)
+ * and Bluetooth HCI captures of the WF-1000XM5.
+ *
+ * Message types (first byte in payload, confusingly called "PayloadType" in GB):
+ *   AMBIENT_SOUND_CONTROL_GET  = 0x66   (MessageType COMMAND_1)
+ *   AMBIENT_SOUND_CONTROL_RET  = 0x67
+ *   AMBIENT_SOUND_CONTROL_SET  = 0x68
+ *   AMBIENT_SOUND_CONTROL_NOTIFY = 0x69
+ *   EQUALIZER_GET              = 0x56
+ *   EQUALIZER_RET              = 0x57
+ *   EQUALIZER_SET              = 0x58
+ *   BATTERY_LEVEL_REQUEST (V2) = 0x22
+ *   BATTERY_LEVEL_REPLY   (V2) = 0x23
+ *   BATTERY_LEVEL_NOTIFY  (V2) = 0x25
+ *   AUTOMATIC_POWER_OFF_BUTTON_MODE_GET = 0xF6  (Speak-to-Chat, etc.)
+ *   AUTOMATIC_POWER_OFF_BUTTON_MODE_SET = 0xF8
+ *
+ * V2 uses sub-bytes 0x15 / 0x17 in ANC payloads to indicate whether
+ * wind-noise-cancelling data is included.
  */
 object SonyCommands {
-
-    // ── Feature identifiers ──────────────────────────────────────────
-
-    private const val FEATURE_NC_ASM: Byte = 0x68
-    private const val FEATURE_EQ: Byte = 0x58
-    private const val FEATURE_BATTERY: Byte = 0x22
-
-    private const val CMD_GET: Byte = 0x01
-    private const val CMD_SET: Byte = 0x02
-    private const val CMD_NOTIFY: Byte = 0x0D
 
     // ── ANC / Ambient Sound ─────────────────────────────────────────
 
     enum class AncMode(val displayName: String) {
         NOISE_CANCELING("Noise Canceling"),
+        WIND_NOISE_REDUCTION("Wind Noise Reduction"),
         AMBIENT_SOUND("Ambient Sound"),
         OFF("Off")
     }
 
     /**
      * Request current NC/Ambient Sound status.
+     * Sub-byte 0x17 = include wind-noise info (V2 / XM5).
      */
     fun getNcAsmStatus(): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(FEATURE_NC_ASM, CMD_GET)
+        byteArrayOf(0x66, 0x17)
     )
 
     /**
-     * Set Noise Canceling mode ON (full NC, no ambient, no wind reduction).
+     * Set Ambient Sound Control (V2 format matching Gadgetbridge).
+     *
+     * Payload: [0x68, sub, 0x01, ncEnabled, ambientMode, windByte, focusVoice, ambientLevel]
+     *   sub = 0x17 (with wind noise data)
+     *   0x01 = "committed" (vs 0x00 for dragging slider)
+     *   ncEnabled: 0x00=off, 0x01=on
+     *   ambientMode: 0x00=noise cancel, 0x01=ambient sound
+     *   windByte: 0x02=normal, 0x03=wind noise reduction
+     *   focusVoice: 0x00=off, 0x01=on
+     *   ambientLevel: 0-20
      */
-    fun setNoiseCanceling(windReduction: Boolean = false): ByteArray {
-        val windByte: Byte = if (windReduction) 0x01 else 0x00
-        return SonyMessage.buildCommand(
-            byteArrayOf(
-                FEATURE_NC_ASM, CMD_SET,
-                0x11,           // NC/ASM enabled
-                0x02,           // Mode = Noise Canceling
-                0x00,           // NC adjustment mode (auto)
-                windByte,       // Wind noise reduction
-                0x01,           // ASM amount (ignored in NC mode)
-                0x00            // ASM voice focus off (ignored)
-            )
-        )
-    }
+    fun setNoiseCanceling(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x00, 0x02, 0x00, 0x00)
+    )
 
-    /**
-     * Set Ambient Sound mode with configurable level and voice focus.
-     * @param level 0–20 (0 = least ambient, 20 = maximum)
-     * @param focusOnVoice highlight human voices in ambient pass-through
-     */
+    fun setWindNoiseReduction(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x00, 0x03, 0x00, 0x00)
+    )
+
     fun setAmbientSound(level: Int = 15, focusOnVoice: Boolean = false): ByteArray {
-        val clampedLevel = level.coerceIn(0, 20).toByte()
-        val voiceByte: Byte = if (focusOnVoice) 0x01 else 0x00
+        val lvl = level.coerceIn(0, 20).toByte()
+        val voice: Byte = if (focusOnVoice) 0x01 else 0x00
         return SonyMessage.buildCommand(
-            byteArrayOf(
-                FEATURE_NC_ASM, CMD_SET,
-                0x11,               // NC/ASM enabled
-                0x01,               // Mode = Ambient Sound
-                0x00,               // NC adjustment (unused)
-                0x00,               // Wind reduction off
-                clampedLevel,       // Ambient level
-                voiceByte           // Focus on voice
-            )
+            byteArrayOf(0x68, 0x17, 0x01, 0x01, 0x01, 0x02, voice, lvl)
         )
     }
 
-    /**
-     * Turn ANC and Ambient Sound OFF (normal audio passthrough via driver).
-     */
     fun setAncOff(): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(
-            FEATURE_NC_ASM, CMD_SET,
-            0x00,       // NC/ASM disabled
-            0x00,       // Mode = Off
-            0x00, 0x00, 0x00, 0x00
-        )
+        byteArrayOf(0x68, 0x17, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00)
     )
+
+    fun setAncMode(mode: AncMode, ambientLevel: Int = 15, focusOnVoice: Boolean = false): ByteArray {
+        return when (mode) {
+            AncMode.NOISE_CANCELING -> setNoiseCanceling()
+            AncMode.WIND_NOISE_REDUCTION -> setWindNoiseReduction()
+            AncMode.AMBIENT_SOUND -> setAmbientSound(ambientLevel, focusOnVoice)
+            AncMode.OFF -> setAncOff()
+        }
+    }
 
     // ── Equalizer ───────────────────────────────────────────────────
 
@@ -105,70 +103,61 @@ object SonyCommands {
     }
 
     fun getEqStatus(): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(FEATURE_EQ, CMD_GET)
+        byteArrayOf(0x56, 0x00)
     )
 
     fun setEqPreset(preset: EqPreset): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(FEATURE_EQ, CMD_SET, preset.id)
+        byteArrayOf(0x58, 0x00, preset.id, 0x00)
     )
 
     /**
-     * Set custom 5-band EQ. Each band is a signed value from -10 to +10.
-     * Bands: [400Hz, 1kHz, 2.5kHz, 6.3kHz, 16kHz]
+     * Set custom 5-band EQ (V2 format).
+     * Values are 0-20, with 10 being neutral. Input is -10..+10, shifted to 0..20.
      */
     fun setCustomEq(bands: IntArray): ByteArray {
         require(bands.size == 5) { "Custom EQ requires exactly 5 bands" }
-        val bandBytes = bands.map { it.coerceIn(-10, 10).toByte() }.toByteArray()
+        val shifted = bands.map { (it.coerceIn(-10, 10) + 10).toByte() }.toByteArray()
         return SonyMessage.buildCommand(
-            byteArrayOf(FEATURE_EQ, CMD_SET, EqPreset.CUSTOM.id) + bandBytes
+            byteArrayOf(0x58, 0x00, 0xA0.toByte(), 0x06) + shifted
         )
     }
 
-    // ── Battery ─────────────────────────────────────────────────────
+    // ── Battery (V2 payload types) ──────────────────────────────────
 
-    fun getBatteryStatus(): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(FEATURE_BATTERY, CMD_GET)
+    fun getBatteryDual(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x22, 0x09)
     )
 
-    // ── Speak-to-Chat ───────────────────────────────────────────────
+    fun getBatteryCase(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x22, 0x0A)
+    )
+
+    // ── Speak-to-Chat (V2) ──────────────────────────────────────────
 
     fun setSpeakToChat(enabled: Boolean): ByteArray {
-        val flag: Byte = if (enabled) 0x01 else 0x00
+        val flag: Byte = if (enabled) 0x00 else 0x01
         return SonyMessage.buildCommand(
-            byteArrayOf(0x6C, CMD_SET, flag)
+            byteArrayOf(0xF8.toByte(), 0x0C, flag, 0x01)
         )
     }
 
     fun getSpeakToChatStatus(): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(0x6C, CMD_GET)
+        byteArrayOf(0xF6.toByte(), 0x0C)
     )
 
-    // ── Auto Power Off ──────────────────────────────────────────────
-
-    enum class AutoPowerOff(val code: Byte, val displayName: String) {
-        OFF(0x11, "Off"),
-        AFTER_5_MIN(0x00, "5 min"),
-        AFTER_30_MIN(0x01, "30 min"),
-        AFTER_60_MIN(0x02, "60 min"),
-        AFTER_180_MIN(0x03, "3 hours");
-
-        companion object {
-            fun fromCode(code: Byte): AutoPowerOff = entries.firstOrNull { it.code == code } ?: OFF
-        }
-    }
-
-    fun setAutoPowerOff(setting: AutoPowerOff): ByteArray = SonyMessage.buildCommand(
-        byteArrayOf(0x28, CMD_SET, setting.code)
-    )
-
-    // ── Initialization handshake ────────────────────────────────────
+    // ── Initialization ──────────────────────────────────────────────
 
     /**
-     * Initial handshake payload sent after RFCOMM connection.
-     * Tells the device what protocol capabilities the host supports.
+     * Protocol init request. Sent as COMMAND_1 with payload [0x00, 0x00].
+     * V1 devices reply with 4-byte payload; V2 with 8-byte payload.
      */
-    fun initHandshake(): ByteArray = SonyMessage.buildFrame(
-        dataType = 0x01,
-        payload = byteArrayOf(0x00, 0x00)
+    fun initRequest(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x00, 0x00)
+    )
+
+    // ── Firmware version ────────────────────────────────────────────
+
+    fun getFirmwareVersion(): ByteArray = SonyMessage.buildCommand(
+        byteArrayOf(0x04)
     )
 }
