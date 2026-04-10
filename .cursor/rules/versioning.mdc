@@ -1,0 +1,21 @@
+# Versioning Rule
+
+Every time a new APK build is pushed to GitHub, the version **must** be incremented. Never reuse or overwrite an existing tag.
+
+## Scheme
+- Tags follow **semver**: `vMAJOR.MINOR.PATCH` (e.g. `v1.0.0`, `v1.0.1`, `v1.1.0`)
+- `PATCH` increments for bug fixes and small changes
+- `MINOR` increments for new features
+- `MAJOR` increments for breaking / architectural changes
+
+## Workflow
+1. Before tagging, check the latest tag: `git tag --sort=-v:refname | head -1`
+2. Bump the appropriate segment
+3. Update `versionCode` and `versionName` in `app/build.gradle.kts` to match
+4. Update the APK filename in `.github/workflows/build-release.yml` to match
+5. Commit the version bump, then tag and push
+
+## Never
+- Reuse or delete-and-recreate a tag
+- Push a release with the same version as an existing one
+- Forget to update `versionCode` (integer, must strictly increase) and `versionName` (display string) in the Gradle file
